@@ -22,7 +22,7 @@ class GridEnv(AECEnv):
 
         # initialise the agents
         num_agents = 1
-        self.vision_radius = 0
+        self.vision_radius = 1 # how many squares beyond the current square can the agent see
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
 
@@ -33,10 +33,9 @@ class GridEnv(AECEnv):
         self.reset()
 
     def observation_space(self, agent: AgentID):
-        # coord = Box(low=0, high=self.grid_size, shape=(2,), dtype=np.int32)
-        # num_visible_squares = ((2 * self.vision_radius) ** 2) - (2 * self.vision_radius) + 1
-        # return Tuple([coord, [Tuple(coord, Discrete(2)) for _ in range(num_visible_squares)]])
-        return Box(low=0, high=self.grid_size, shape=(2,), dtype=np.int32)
+        coord = Box(low=0, high=self.grid_size, shape=(2,), dtype=np.int32)
+        num_visible_squares = ((2 * self.vision_radius) ** 2) - (2 * self.vision_radius) + 1
+        return Tuple([coord, [Tuple(coord, Discrete(2)) for _ in range(num_visible_squares)]])
 
     def action_space(self, agent: AgentID):
         return Discrete(4)
@@ -98,7 +97,7 @@ class GridEnv(AECEnv):
             for j in range(y - r, y + r + 1):
                 if not ((0 <= i < self.grid_size) and (0 <= j < self.grid_size)):
                     continue
-                if not (abs(x - i) <= r and abs(y - j) <= r):
+                if not (abs(x - i) + abs(y - j) <= r):
                     continue
                 coordinates.append((i, j))
 
@@ -148,6 +147,13 @@ env.reset(image=x_train[0])  # load the first image
 
 for agent in env.agent_iter():
     observation, _, terminated, truncated, info = env.last()
+
+    print("\n")
+    print(f"Observation for agent {agent}: ")
+    print(f"Currently at position {observation[0]}")
+    print(f"Visible squares: {observation[1]}")
+    print(f"Num visible squares: {len(observation[1])}")
+
     if terminated:
         action = None
     else:
