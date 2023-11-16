@@ -91,8 +91,23 @@ class GridEnv(AECEnv):
             self.agent_selection = self._agent_selector.next()
 
     def observe(self, agent: AgentID):
+        coordinates = []
+        x, y = self.agent_positions[agent]
+        r = self.vision_radius
+        for i in range(x - r, x + r + 1):
+            for j in range(y - r, y + r + 1):
+                if not ((0 <= i < self.grid_size) and (0 <= j < self.grid_size)):
+                    continue
+                if not (abs(x - i) <= r and abs(y - j) <= r):
+                    continue
+                coordinates.append((i, j))
+
+        grid_obs = []
+        for coord in coordinates:
+            grid_obs.append((coord, self.grid_state[coord]))
+
         # return a placeholder observation for now
-        return self.agent_positions[agent]
+        return ((x, y), grid_obs)
 
     def _check_done(self, agent):
         self.infos[agent]['age'] += 1
