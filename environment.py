@@ -1,15 +1,15 @@
-import functools
 
-import gymnasium
 import numpy as np
-from gymnasium.spaces import Discrete, Box
+from gymnasium.spaces import Discrete, Box, Tuple
 
 from pettingzoo import AECEnv
 from pettingzoo.utils import agent_selector, wrappers
 from pettingzoo.utils.env import AgentID, ObsType
 
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+
+from tensorflow.keras.datasets import mnist
+
 
 
 class GridEnv(AECEnv):
@@ -21,7 +21,8 @@ class GridEnv(AECEnv):
         super().__init__()
 
         # initialise the agents
-        num_agents = 10
+        num_agents = 1
+        self.vision_radius = 0
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
 
@@ -32,12 +33,17 @@ class GridEnv(AECEnv):
         self.reset()
 
     def observation_space(self, agent: AgentID):
+        # coord = Box(low=0, high=self.grid_size, shape=(2,), dtype=np.int32)
+        # num_visible_squares = ((2 * self.vision_radius) ** 2) - (2 * self.vision_radius) + 1
+        # return Tuple([coord, [Tuple(coord, Discrete(2)) for _ in range(num_visible_squares)]])
         return Box(low=0, high=self.grid_size, shape=(2,), dtype=np.int32)
 
     def action_space(self, agent: AgentID):
         return Discrete(4)
 
     def reset(self, **kwargs):
+
+        image = kwargs.get('image', np.zeros((self.grid_size, self.grid_size)))
 
         # agent positions all reset to centre of grid
         for id in self.agents:
@@ -50,8 +56,8 @@ class GridEnv(AECEnv):
         self.truncations = {agent: False for agent in self.agents}
         self.infos = {agent: {'age': 0} for agent in self.agents}
 
-        # empty grid state for now
-        self.grid_state = np.zeros((self.grid_size, self.grid_size))
+        # load the image into the grid state, normalise the values, and then round the values to 0 or 1
+        self.grid_state = np.round(image / 255)
 
         # reset the agent selector
         self._agent_selector = agent_selector(self.agents)
@@ -98,7 +104,7 @@ class GridEnv(AECEnv):
             plt.figure()
             plt.show(block=False)
         plt.clf()
-        plt.imshow(self.grid_state)
+        plt.imshow(self.grid_state, cmap='gray')
         for agent in self.agents:
             x, y = self.agent_positions[agent]
             plt.plot(x, y, 'ro', markersize=5)
@@ -115,13 +121,15 @@ class GridEnv(AECEnv):
 def policy():
     return np.random.randint(4)
 
+# import the mnist dataset
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
 
 # To show the environment updating in real time, we use pyplot interactive mode
 plt.ion()
 
 # testing the environment
 env = GridEnv()
-env.reset()
+env.reset(image=x_train[0])  # load the first image
 
 for agent in env.agent_iter():
     observation, _, terminated, truncated, info = env.last()
