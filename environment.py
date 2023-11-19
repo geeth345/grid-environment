@@ -23,6 +23,7 @@ class GridEnv(AECEnv):
         # initialise the agents
         num_agents = 1
         self.vision_radius = 1 # how many squares beyond the current square can the agent see
+        self.square_radius = True # visibility window is a square
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
 
@@ -97,7 +98,7 @@ class GridEnv(AECEnv):
             for j in range(y - r, y + r + 1):
                 if not ((0 <= i < self.grid_size) and (0 <= j < self.grid_size)):
                     continue
-                if not (abs(x - i) + abs(y - j) <= r):
+                if not self.square_radius and not (abs(x - i) + abs(y - j) <= r):
                     continue
                 coordinates.append((i, j))
 
