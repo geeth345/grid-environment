@@ -24,6 +24,8 @@ class GridEnv(AECEnv):
         num_agents = 1
         self.vision_radius = 1 # how many squares beyond the current square can the agent see
         self.square_radius = True # visibility window is a square
+        self.confidence_decay = 0.9 # how much to decay confidence in historic observations
+
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
 
@@ -44,6 +46,7 @@ class GridEnv(AECEnv):
     def reset(self, **kwargs):
 
         image = kwargs.get('image', np.zeros((self.grid_size, self.grid_size)))
+        assert image.shape == (self.grid_size, self.grid_size), "Image must be of shape (grid_size, grid_size)"
 
         # agent positions all reset to centre of grid
         for id in self.agents:
@@ -54,7 +57,11 @@ class GridEnv(AECEnv):
         self._cumulative_rewards = {agent: 0 for agent in self.agents}
         self.terminations = {agent: False for agent in self.agents}
         self.truncations = {agent: False for agent in self.agents}
-        self.infos = {agent: {'age': 0} for agent in self.agents}
+        self.infos = {agent: {
+            'age': 0,
+            'belief': np.zeros(image.shape),
+            'confidence':np.zeros(image.shape)
+        } for agent in self.agents}
 
         # load the image into the grid state, normalise the values, and then round the values to 0 or 1
         self.grid_state = np.round(image / 255)
@@ -83,6 +90,17 @@ class GridEnv(AECEnv):
             # Keep the agent within the grid bounds
             self.agent_positions[id] = np.clip(self.agent_positions[id], 0, self.grid_size - 1)
 
+            # adjust confidence map for historic observations, currently just using a simple decay factor
+            self.infos[id]['confidence'] = self.infos[id]['confidence'] * self.confidence_decay
+
+            # update belief and confidence maps
+            loc, obs = self.observe(id)
+            for ob in obs:
+                (x, y), val = ob
+                self.infos[id]['belief'][x][y] = val
+                self.infos[id]['confidence'][x][y] = 1
+
+
             # Updating done flag and reward for the agent (currently not doing anything)
             self._check_done(id)
             self.rewards[id] = 0
@@ -106,7 +124,6 @@ class GridEnv(AECEnv):
         for coord in coordinates:
             grid_obs.append((coord, self.grid_state[coord]))
 
-        # return a placeholder observation for now
         return ((x, y), grid_obs)
 
     def _check_done(self, agent):
