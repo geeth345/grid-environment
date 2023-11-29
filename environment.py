@@ -23,13 +23,17 @@ class GridEnv(AECEnv):
     def __init__(self, grid_size=28):
         super().__init__()
 
-        # initialise the agents
+        # model parameters
         num_agents = 1
         self.vision_radius = 2  # how many squares beyond the current square can the agent see
         self.square_radius = True  # visibility window is a square
-        self.confidence_decay = 0.98  # how much to decay confidence in historic observations
+        self.confidence_decay = 0.995  # how much to decay confidence in historic observations
         self.binary_pixels = False  # whether to use binary or grayscale pixels
+        self.max_age = 500  # how many steps before an agent is terminated (-1 for infinite)
+
+        # visualisation parameters
         self.visualisation_type = 'pygame'
+        self.render_wait_millis = 50
 
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
@@ -136,7 +140,7 @@ class GridEnv(AECEnv):
 
     def _check_done(self, agent):
         self.infos[agent]['age'] += 1
-        if self.infos[agent]['age'] >= 100:
+        if (not self.max_age == -1) and (self.infos[agent]['age'] >= self.max_age):
             self.terminations[agent] = True
 
     def render(self, mode='human'):
@@ -156,7 +160,7 @@ class GridEnv(AECEnv):
         self.renderMatrix(self.infos[self.agent_selection]['belief'], 280, scale)
         self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, scale)
         pygame.display.update()
-        pygame.time.delay(200)
+        pygame.time.delay(self.render_wait_millis)
 
 
     def renderMatrix(self, array, xOffset, scale):
@@ -232,5 +236,13 @@ if __name__ == '__main__':
 
     env.close()
 
-    plt.ioff()
-    plt.show()
+    # plt.ioff()
+    # plt.show()
+
+    waiting_for_close = True
+    while waiting_for_close:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                waiting_for_close = False
+
+    pygame.quit()
