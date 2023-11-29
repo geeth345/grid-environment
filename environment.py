@@ -1,3 +1,4 @@
+import random
 
 import numpy as np
 from gymnasium.spaces import Discrete, Box, Tuple
@@ -7,6 +8,8 @@ from pettingzoo.utils import agent_selector, wrappers
 from pettingzoo.utils.env import AgentID, ObsType
 
 import matplotlib.pyplot as plt
+
+import pygame
 
 from tensorflow.keras.datasets import mnist
 
@@ -22,9 +25,11 @@ class GridEnv(AECEnv):
 
         # initialise the agents
         num_agents = 1
-        self.vision_radius = 1 # how many squares beyond the current square can the agent see
-        self.square_radius = True # visibility window is a square
-        self.confidence_decay = 0.9 # how much to decay confidence in historic observations
+        self.vision_radius = 2  # how many squares beyond the current square can the agent see
+        self.square_radius = True  # visibility window is a square
+        self.confidence_decay = 0.98  # how much to decay confidence in historic observations
+        self.binary_pixels = False  # whether to use binary or grayscale pixels
+        self.visualisation_type = 'pygame'
 
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
@@ -63,8 +68,11 @@ class GridEnv(AECEnv):
             'confidence':np.zeros(image.shape)
         } for agent in self.agents}
 
-        # load the image into the grid state, normalise the values, and then round the values to 0 or 1
-        self.grid_state = np.round(image / 255)
+        if self.binary_pixels:
+            # load the image into the grid state, normalise the values, and then round the values to 0 or 1
+            self.grid_state = np.round(image / 255)
+        else:
+            self.grid_state = image / 255
 
         # reset the agent selector
         self._agent_selector = agent_selector(self.agents)
@@ -132,16 +140,30 @@ class GridEnv(AECEnv):
             self.terminations[agent] = True
 
     def render(self, mode='human'):
-        if not plt.get_fignums():
-            plt.figure()
-            plt.show(block=False)
-        plt.clf()
-        plt.imshow(self.grid_state, cmap='gray')
-        for agent in self.agents:
-            x, y = self.agent_positions[agent]
-            plt.plot(x, y, 'ro', markersize=5)
-        plt.draw()
-        plt.pause(0.2)
+        # if not plt.get_fignums():
+        #     plt.figure()
+        #     plt.show(block=False)
+        # plt.clf()
+        # plt.imshow(self.grid_state, cmap='gray')
+        # for agent in self.agents:
+        #     x, y = self.agent_positions[agent]
+        #     plt.plot(x, y, 'ro', markersize=5)
+        # plt.draw()
+        # plt.pause(0.2)
+        scale = 10
+        window.fill((0, 0, 0))
+        self.renderMatrix(self.grid_state, 0, scale)
+        self.renderMatrix(self.infos[self.agent_selection]['belief'], 280, scale)
+        self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, scale)
+        pygame.display.update()
+        pygame.time.delay(200)
+
+
+    def renderMatrix(self, array, xOffset, scale):
+        for i in range(array.shape[0]):
+            for j in range(array.shape[1]):
+                colour = array[i][j] * 255
+                pygame.draw.rect(window, (colour, colour, colour), (j * scale + xOffset, i * scale, scale, scale))
 
 
     def close(self):
@@ -149,42 +171,66 @@ class GridEnv(AECEnv):
         pass
 
 
-# placeholder policy function
-def policy():
-    return np.random.randint(4)
-
-# import the mnist dataset
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
-
-# To show the environment updating in real time, we use pyplot interactive mode
-plt.ion()
-
-# testing the environment
-env = GridEnv()
-env.reset(image=x_train[0])  # load the first image
-
-for agent in env.agent_iter():
-    observation, _, terminated, truncated, info = env.last()
-
-    print("\n")
-    print(f"Observation for agent {agent}: ")
-    print(f"Currently at position {observation[0]}")
-    print(f"Visible squares: {observation[1]}")
-    print(f"Num visible squares: {len(observation[1])}")
-
-    if terminated:
-        action = None
-    else:
-        action = policy()  # Update with actual policy
-    env.step(action)
-    env.render()
-    if all(env.terminations.values()):
-        print('All agents terminated')
-        break
-
-env.close()
-
-plt.ioff()
-plt.show()
 
 
+
+if __name__ == '__main__':
+    # placeholder policy function
+    def policy(currentPos, info):
+        # is there a target? if not, set one
+
+        if ('target' not in info) or (info['target'] == currentPos):
+            info['target'] = (random.randint(0, 27), random.randint(0, 27))
+        print(info['target'])
+        print(currentPos)
+
+        # move towards the target, semi-randomly
+        target = info['target']
+        xReached = (currentPos[0] == target[0])
+        yReached = (currentPos[1] == target[1])
+        if xReached:
+            return 1 if currentPos[1] < target[1] else 0
+        elif yReached:
+            return 3 if currentPos[0] < target[0] else 2
+        else:
+            if np.random.rand() < 0.5:
+                return 1 if currentPos[1] < target[1] else 0
+            else:
+                return 3 if currentPos[0] < target[0] else 2
+
+    # import the mnist dataset
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+    # # To show the environment updating in real time, we use pyplot interactive mode
+    # plt.ion()
+    pygame.init()
+    pygame.display.set_caption('Grid Environment')
+    window = pygame.display.set_mode((280 * 3, 280))
+
+    # testing the environment
+    env = GridEnv()
+    env.reset(image=x_train[0])  # load the first image
+
+    for agent in env.agent_iter():
+        observation, _, terminated, truncated, info = env.last()
+
+        print("\n")
+        print(f"Observation for agent {agent}: ")
+        print(f"Currently at position {observation[0]}")
+        print(f"Visible squares: {observation[1]}")
+        print(f"Num visible squares: {len(observation[1])}")
+
+        if terminated:
+            action = None
+        else:
+            action = policy(observation[0], info)  # Update with actual policy
+        env.step(action)
+        env.render()
+        if all(env.terminations.values()):
+            print('All agents terminated')
+            break
+
+    env.close()
+
+    plt.ioff()
+    plt.show()
