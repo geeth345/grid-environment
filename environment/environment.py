@@ -27,13 +27,14 @@ class GridEnv(AECEnv):
         num_agents = 1
         self.vision_radius = 2  # how many squares beyond the current square can the agent see
         self.square_radius = True  # visibility window is a square
-        self.confidence_decay = 0.995  # how much to decay confidence in historic observations
+        self.confidence_decay = 0.975  # how much to decay confidence in historic observations
         self.binary_pixels = False  # whether to use binary or grayscale pixels
-        self.max_age = 500  # how many steps before an agent is terminated (-1 for infinite)
+        self.max_age = 100  # how many steps before an agent is terminated (-1 for infinite)
 
         # visualisation parameters
         self.visualisation_type = 'pygame'
-        self.render_wait_millis = 50
+        self.render_wait_millis = 75
+        self.print_info = False
 
         self.agents = [f'agent_{i}' for i in range(num_agents)]
         self.agent_positions = {name: np.array([0, 0]) for name in self.agents}
@@ -156,9 +157,15 @@ class GridEnv(AECEnv):
         # plt.pause(0.2)
         scale = 10
         window.fill((0, 0, 0))
+
+        # draw the visualisations
         self.renderMatrix(self.grid_state, 0, scale)
         self.renderMatrix(self.infos[self.agent_selection]['belief'], 280, scale)
         self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, scale)
+
+        # draw the agent position
+        pygame.draw.rect(window, (255, 0, 0), (self.agent_positions[self.agent_selection][1] * scale, self.agent_positions[self.agent_selection][0] * scale, scale, scale))
+
         pygame.display.update()
         pygame.time.delay(self.render_wait_millis)
 
@@ -185,8 +192,8 @@ if __name__ == '__main__':
 
         if ('target' not in info) or (info['target'] == currentPos):
             info['target'] = (random.randint(0, 27), random.randint(0, 27))
-        print(info['target'])
-        print(currentPos)
+        # print(info['target'])
+        # print(currentPos)
 
         # move towards the target, semi-randomly
         target = info['target']
@@ -213,28 +220,31 @@ if __name__ == '__main__':
 
     # testing the environment
     env = GridEnv()
-    env.reset(image=x_train[0])  # load the first image
 
-    for agent in env.agent_iter():
-        observation, _, terminated, truncated, info = env.last()
+    for i in range(10):
+        env.reset(image=x_train[i])  # load the image
 
-        print("\n")
-        print(f"Observation for agent {agent}: ")
-        print(f"Currently at position {observation[0]}")
-        print(f"Visible squares: {observation[1]}")
-        print(f"Num visible squares: {len(observation[1])}")
+        for agent in env.agent_iter():
+            observation, _, terminated, truncated, info = env.last()
 
-        if terminated:
-            action = None
-        else:
-            action = policy(observation[0], info)  # Update with actual policy
-        env.step(action)
-        env.render()
-        if all(env.terminations.values()):
-            print('All agents terminated')
-            break
+            if env.print_info:
+                print("\n")
+                print(f"Observation for agent {agent}: ")
+                print(f"Currently at position {observation[0]}")
+                print(f"Visible squares: {observation[1]}")
+                print(f"Num visible squares: {len(observation[1])}")
 
-    env.close()
+            if terminated:
+                action = None
+            else:
+                action = policy(observation[0], info)  # Update with actual policy
+            env.step(action)
+            env.render()
+            if all(env.terminations.values()):
+                print('All agents terminated')
+                break
+
+        env.close()
 
     # plt.ioff()
     # plt.show()
