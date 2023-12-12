@@ -21,7 +21,7 @@ num_workers = 0
 batch_size = 64
 
 
-
+# subset mnist
 class MNIST_subset(Dataset):
     def __init__(self, mnist_dataset, classes):
         self.data = []
@@ -45,7 +45,8 @@ transform = transforms.ToTensor()
 # full mnist
 full_mnist_data = datasets.MNIST(root='data', train=True,
                                     download=True, transform=transform)
-# get the actual training datasets
+
+# the actual training data, for intial testing, is a subset of the full mnist data (defined in classes)
 train_data = MNIST_subset(full_mnist_data, [8])
 
 # prepare data loader
@@ -53,14 +54,13 @@ train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size,
                                            num_workers=num_workers)
 
 
-# obtain one batch of training images
+# obtain one batch of training images, creates an iterator from the data loaded
 dataiter = iter(train_loader)
 images, labels = next(dataiter)
 images = images.numpy()
 
-# get one image from the batch
+# plot the first image for reference
 img = np.squeeze(images[0])
-
 fig = plt.figure(figsize = (3,3))
 ax = fig.add_subplot(111)
 ax.imshow(img, cmap='gray')
@@ -68,32 +68,28 @@ plt.show()
 
 
 class Discriminator(nn.Module):
-
     def __init__(self, input_size, hidden_dim, output_size):
         super(Discriminator, self).__init__()
 
-        # define hidden linear layers
+        # layers
         self.fc1 = nn.Linear(input_size, hidden_dim * 4)
         self.fc2 = nn.Linear(hidden_dim * 4, hidden_dim * 2)
         self.fc3 = nn.Linear(hidden_dim * 2, hidden_dim)
-
-        # final fully-connected layer
         self.fc4 = nn.Linear(hidden_dim, output_size)
 
-        # dropout layer
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
         # flatten image
         x = x.view(-1, 28 * 28)
-        # all hidden layers
+
+        # layers
         x = F.leaky_relu(self.fc1(x), 0.2)  # (input, negative_slope=0.2)
         x = self.dropout(x)
         x = F.leaky_relu(self.fc2(x), 0.2)
         x = self.dropout(x)
         x = F.leaky_relu(self.fc3(x), 0.2)
         x = self.dropout(x)
-        # final layer
         out = self.fc4(x)
 
         return out
@@ -104,15 +100,12 @@ class Generator(nn.Module):
     def __init__(self, input_size, hidden_dim, output_size):
         super(Generator, self).__init__()
 
-        # define hidden linear layers
+        # layers
         self.fc1 = nn.Linear(input_size, hidden_dim)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim * 2)
         self.fc3 = nn.Linear(hidden_dim * 2, hidden_dim * 4)
-
-        # final fully-connected layer
         self.fc4 = nn.Linear(hidden_dim * 4, output_size)
 
-        # dropout layer
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
@@ -129,29 +122,21 @@ class Generator(nn.Module):
         return out
 
 
-# Discriminator hyperparams
 
-# Size of input image to discriminator (28*28)
-input_size = 784
-# Size of discriminator output (real or fake)
-d_output_size = 1
-# Size of last hidden layer in the discriminator
+# Discriminator hyperparameters
+d_input_size = 784
 d_hidden_size = 32
+d_output_size = 1
 
-# Generator hyperparams
-
-# Size of latent vector to give to generator
-z_size = 100
-# Size of discriminator output (generated image)
-g_output_size = 784
-# Size of first hidden layer in the generator
+# Generator hyperparameters
+g_input_size = 784
 g_hidden_size = 32
-
-
+g_output_size = 784
 
 # instantiate discriminator and generator
-D = Discriminator(input_size, d_hidden_size, d_output_size)
-G = Generator(z_size, g_hidden_size, g_output_size)
+D = Discriminator(d_input_size, d_hidden_size, d_output_size)
+G = Generator(g_input_size, g_hidden_size, g_output_size)
+
 
 # check that they are as you expect
 print(D)
@@ -209,7 +194,7 @@ print_every = 400
 # Get some fixed data for sampling. These are images that are held
 # constant throughout training, and allow us to inspect the model's performance
 sample_size = 16
-fixed_z = np.random.uniform(-1, 1, size=(sample_size, z_size))
+fixed_z = np.random.uniform(-1, 1, size=(sample_size, g_input_size))
 fixed_z = torch.from_numpy(fixed_z).float()
 
 # train the network
@@ -242,7 +227,7 @@ for epoch in range(num_epochs):
         # Generate fake images
         # gradients don't have to flow during this step
         with torch.no_grad():
-            z = np.random.uniform(-1, 1, size=(batch_size, z_size))
+            z = np.random.uniform(-1, 1, size=(batch_size, g_input_size))
             z = torch.from_numpy(z).float()
             fake_images = G(z)
 
@@ -263,7 +248,7 @@ for epoch in range(num_epochs):
         # 1. Train with fake images and flipped labels
 
         # Generate fake images
-        z = np.random.uniform(-1, 1, size=(batch_size, z_size))
+        z = np.random.uniform(-1, 1, size=(batch_size, g_input_size))
         z = torch.from_numpy(z).float()
         fake_images = G(z)
 
