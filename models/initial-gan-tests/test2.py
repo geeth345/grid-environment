@@ -47,7 +47,7 @@ full_mnist_data = datasets.MNIST(root='data', train=True,
                                     download=True, transform=transform)
 
 # the actual training data, for intial testing, is a subset of the full mnist data (defined in classes)
-train_data = MNIST_subset(full_mnist_data, [2])
+train_data = MNIST_subset(full_mnist_data, [8])
 
 # prepare data loader
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size,
@@ -68,74 +68,63 @@ plt.show()
 
 
 class Discriminator(nn.Module):
-    def __init__(self, input_size, hidden_dim, output_size):
+    def __init__(self):
         super(Discriminator, self).__init__()
 
-        # layers
-        self.fc1 = nn.Linear(input_size, hidden_dim * 4)
-        self.fc2 = nn.Linear(hidden_dim * 4, hidden_dim * 2)
-        self.fc3 = nn.Linear(hidden_dim * 2, hidden_dim)
-        self.fc4 = nn.Linear(hidden_dim, output_size)
+        self.main = nn.Sequential(
+            # input is 1 x 28 x 28
+            nn.Conv2d(1, 128, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2),
+            # state size. 128 x 14 x 14
+            nn.Conv2d(128, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2),
+            # state size. 256 x 7 x 7
+            nn.Conv2d(256, 1, 7, 1, 0, bias=False),
+            nn.Sigmoid()
+            # state size. 1
+        )
 
-        self.dropout = nn.Dropout(0.3)
 
-    def forward(self, x):
-        # flatten image
-        x = x.view(-1, 28 * 28)
-
-        # layers
-        x = F.leaky_relu(self.fc1(x), 0.2)  # (input, negative_slope=0.2)
-        x = self.dropout(x)
-        x = F.leaky_relu(self.fc2(x), 0.2)
-        x = self.dropout(x)
-        x = F.leaky_relu(self.fc3(x), 0.2)
-        x = self.dropout(x)
-        out = self.fc4(x)
-
-        return out
+    def forward(self, input):
+        return self.main(input)
 
 
 class Generator(nn.Module):
 
-    def __init__(self, input_size, hidden_dim, output_size):
+    def __init__(self, input_dim):
         super(Generator, self).__init__()
 
-        # layers
-        self.fc1 = nn.Linear(input_size, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim * 2)
-        self.fc3 = nn.Linear(hidden_dim * 2, hidden_dim * 4)
-        self.fc4 = nn.Linear(hidden_dim * 4, output_size)
+        self.main = nn.Sequential(
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d(input_dim, 256, 7, 1, 0, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(True),
+            # state size. 256 x 7 x 7
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+            # state size. 128 x 14 x 14
+            nn.ConvTranspose2d(128, 1, 4, 2, 1, bias=False),
+            nn.Tanh()
+            # state size. output_dim x 28 x 28
+        )
 
-        self.dropout = nn.Dropout(0.3)
-
-    def forward(self, x):
-        # all hidden layers
-        x = F.leaky_relu(self.fc1(x), 0.2)  # (input, negative_slope=0.2)
-        x = self.dropout(x)
-        x = F.leaky_relu(self.fc2(x), 0.2)
-        x = self.dropout(x)
-        x = F.leaky_relu(self.fc3(x), 0.2)
-        x = self.dropout(x)
-        # final layer with tanh applied
-        out = F.tanh(self.fc4(x))
-
-        return out
+    def forward(self, input):
+        return self.main(input)
 
 
 
 # Discriminator hyperparameters
-d_input_size = 784
-d_hidden_size = 32
-d_output_size = 1
+d_input_dim = 1
 
 # Generator hyperparameters
-g_input_size = 100
-g_hidden_size = 32
-g_output_size = 784
+g_input_dim = 1
+g_output_dim = 1
 
 # instantiate discriminator and generator
-D = Discriminator(d_input_size, d_hidden_size, d_output_size)
-G = Generator(g_input_size, g_hidden_size, g_output_size)
+D = Discriminator(d_input_dim)
+G = Generator(g_input_dim, g_output_dim)
 
 
 # check that they are as you expect
