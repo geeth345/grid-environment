@@ -9,11 +9,11 @@ from __future__ import print_function, division
 from keras.datasets import mnist
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, multiply, GaussianNoise
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D
-from keras.layers import MaxPooling2D, merge
-from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.convolutional import UpSampling2D, Conv2D
+from keras.layers import MaxPooling2D, Lambda
+from keras.layers import LeakyReLU
+from keras.layers import UpSampling2D, Conv2D
 from keras.models import Sequential, Model
-from keras.optimizers import Adam
+from keras.optimizers.legacy import Adam
 from keras import losses
 from keras.utils import to_categorical
 import keras.backend as K
@@ -60,7 +60,6 @@ class AdversarialAutoencoder():
             loss_weights=[0.999, 0.001],
             optimizer=optimizer)
 
-
     def build_encoder(self):
         # Encoder
 
@@ -73,9 +72,15 @@ class AdversarialAutoencoder():
         h = LeakyReLU(alpha=0.2)(h)
         mu = Dense(self.latent_dim)(h)
         log_var = Dense(self.latent_dim)(h)
-        latent_repr = merge([mu, log_var],
-                mode=lambda p: p[0] + K.random_normal(K.shape(p[0])) * K.exp(p[1] / 2),
-                output_shape=lambda p: p[0])
+
+        # Sampling function
+        def sampling(args):
+            mu, log_var = args
+            epsilon = K.random_normal(shape=K.shape(mu), mean=0., stddev=1.0)
+            return mu + K.exp(log_var / 2) * epsilon
+
+        # Apply Lambda layer for sampling
+        latent_repr = Lambda(sampling, output_shape=(self.latent_dim,))([mu, log_var])
 
         return Model(img, latent_repr)
 
@@ -136,7 +141,7 @@ class AdversarialAutoencoder():
             idx = np.random.randint(0, X_train.shape[0], batch_size)
             imgs = X_train[idx]
 
-            latent_fake = self.encoder.predict(imgs)
+            latent_fake = self.encoder.predict(imgs, verbose=0)
             latent_real = np.random.normal(size=(batch_size, self.latent_dim))
 
             # Train the discriminator
