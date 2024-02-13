@@ -11,8 +11,8 @@ def load_mnist(filename):
     return data
 
 if __name__ == '__main__':
-    original_images = load_mnist('../data/train-images-idx3-ubyte')
-    masked_images = load_mnist('../data/masked/masked-train-images-idx3-ubyte')
+    original_images = load_mnist('../../data/train-images-idx3-ubyte')
+    masked_images = load_mnist('../../data/masked/masked-train-images-idx3-ubyte')
 
     for i in range(0, 10):
         fig, (ax1, ax2) = plt.subplots(1, 2)

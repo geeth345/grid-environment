@@ -19,16 +19,23 @@ import random
 
 import numpy as np
 
-# goofy import
-import sys
-sys.path.append('../processing')
-from mask import Mask
+
+
+
+
+
+
+
+
+
+
+
 
 
 class ACGAN():
-    def __init__(self):
+    def __init__(self, masking_function=mask):
         # Input shape
-        self.masked_img_samples = None
+        self.masked_img_samples = np.array([])
         self.img_rows = 28
         self.img_cols = 28
         self.channels = 1
@@ -36,9 +43,8 @@ class ACGAN():
         self.num_classes = 10
         self.latent_dim = 100
 
-        self.masking_function = Mask(visible_radius=1, direction_change_chance=0.7, inverted_mask=False, add_noise=False)
-
         optimizer = Adam(0.0002, 0.5)
+        optimizer2 = Adam(0.0001, 0.5)
         losses = ['binary_crossentropy', 'sparse_categorical_crossentropy']
 
         # Build and compile the discriminator
@@ -65,26 +71,26 @@ class ACGAN():
         # Trains the generator to fool the discriminator
         self.combined = Model(masked_image, [valid, target_label])
         self.combined.compile(loss=losses,
-            optimizer=optimizer)
-        #
-        #
-        # # load the cnn model
-        # self.cnn = load_model('../mnist-cnn/mnist_cnn.h5')
-        #
-        # # create a model that combines the cnn with the generator
-        # # using the cnn to classify the generated images
-        # self.cnn.trainable = False
-        #
-        # # the cnn takes the generated image as input and outputs a classification
-        # cnn_class = self.cnn(img)
-        # self.combined_with_cnn = Model(masked_image, cnn_class)
-        # self.combined_with_cnn.compile(loss='sparse_categorical_crossentropy',
-        #     optimizer=optimizer)
-        #
-        #
-        #
-        #
-        #
+            optimizer=optimizer2)
+
+
+        # load the cnn model
+        self.cnn = load_model('../mnist-cnn/mnist_cnn.h5')
+
+        # create a model that combines the cnn with the generator
+        # using the cnn to classify the generated images
+        self.cnn.trainable = False
+
+        # the cnn takes the generated image as input and outputs a classification
+        cnn_class = self.cnn(img)
+        self.combined_with_cnn = Model(masked_image, cnn_class)
+        self.combined_with_cnn.compile(loss='sparse_categorical_crossentropy',
+            optimizer=optimizer2)
+
+
+
+
+
 
         # load the mnist dataset
         (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -97,7 +103,7 @@ class ACGAN():
         # create a normalised and masked version of the test set
         print('Creating masked test set')
         self.X_test = (self.X_test.astype(np.float32) - 127.5) / 127.5
-        self.X_test_masked = np.array([self.masking_function.mask(img) for img in tqdm(self.X_test)])
+        self.X_test_masked = np.array([masking_function(img) for img in tqdm(self.X_test)])
 
 
         # create a list of lists of the indexes of the test set images with each label
@@ -111,9 +117,6 @@ class ACGAN():
         self.classification_scores = []
 
         # load the cnn model
-        self.cnn = load_model('../mnist-cnn/mnist_cnn.h5')
-        # calculate a baseline by evaluating the cnn on the masked test set
-        self.cnn.trainable = False
         classifications = self.cnn.predict(self.X_test_masked)
         accuracy = np.sum(np.argmax(classifications, axis=1) == self.y_test) / len(self.y_test)
         self.cnn_baseline = accuracy
@@ -210,7 +213,7 @@ class ACGAN():
             imgs = X_train[idx]
 
             # Generating masked images for training the generator
-            masked_imgs = np.array([self.masking_function.mask(img) for img in imgs])
+            masked_imgs = np.array([mask(img) for img in imgs])
 
             # Generate a half batch of new images
             gen_imgs = self.generator.predict(masked_imgs, verbose=0)
@@ -231,9 +234,9 @@ class ACGAN():
 
             # Train the generator using both the masked images and the labels, as well as the cnn loss
             g_loss = self.combined.train_on_batch(masked_imgs, [valid, img_labels])
-            # g_loss_cnn = self.combined_with_cnn.train_on_batch(masked_imgs, img_labels)
-            #
-            # g_loss = 0.5 * np.add(g_loss, g_loss_cnn)
+            g_loss_cnn = self.combined_with_cnn.train_on_batch(masked_imgs, img_labels)
+
+            g_loss = 0.5 * np.add(g_loss, g_loss_cnn)
 
 
             # Plot the progress
@@ -303,10 +306,9 @@ class ACGAN():
         plt.close()
 
 
-
-
     def sample_images(self, epoch):
         r, c = 10, 10
+
         if epoch == 0:
             # generate masked images from the test set
             sampled_labels = np.array([num for _ in range(r) for num in range(c)])
@@ -315,7 +317,7 @@ class ACGAN():
                 index = random.choice(self.test_label_indices[label])
                 img = self.X_test_masked[index]
                 masked_imgs.append(img)
-    
+
             self.masked_img_samples = np.array(masked_imgs)
 
             # save a plot of hte masked images for comparison
@@ -323,11 +325,11 @@ class ACGAN():
             cnt = 0
             for i in range(r):
                 for j in range(c):
-                    axs[i,j].imshow(self.masked_img_samples[cnt,:,:])
-                    axs[i,j].axis('off')
+                    axs[i, j].imshow(self.masked_img_samples[cnt, :, :])
+                    axs[i, j].axis('off')
                     cnt += 1
             fig.savefig("images/0_masked.png")
-        
+
         gen_imgs = self.generator.predict(self.masked_img_samples)
 
         # Rescale images 0 - 1
@@ -362,63 +364,4 @@ class ACGAN():
 
 if __name__ == '__main__':
     acgan = ACGAN()
-    acgan.train(epochs=2200, batch_size=32, sample_interval=200)
-
-
-
-# OLD MASKING FUNCTION
-
-# # parameters
-# RANDOM_WALK_LENGTH = 40
-# VISIBLE_RADIUS = 5
-
-# # given a 28*28 numpy array, apply a mask and return the masked image
-# def mask(image, walk_length=RANDOM_WALK_LENGTH, visible_radius=VISIBLE_RADIUS):
-# 
-#     if len(image.shape) == 3:
-#         image = image[:,:,0]
-# 
-# 
-#     # assume the image is a 28x28 numpy array
-#     assert image.shape == (28, 28)
-# 
-# 
-#     # randomly select a starting position
-#     agent_position = (random.randint(7, 20), random.randint(7, 20))
-#     random_walk_steps = [random.randint(0, 3) for _ in range(RANDOM_WALK_LENGTH)]
-# 
-#     # create the mask
-#     mask = np.zeros((28, 28))
-#     for i in range(RANDOM_WALK_LENGTH):
-#         # update the agent position
-#         if random_walk_steps[i] == 0:
-#             agent_position = (agent_position[0] - 1, agent_position[1])
-#         elif random_walk_steps[i] == 1:
-#             agent_position = (agent_position[0], agent_position[1] + 1)
-#         elif random_walk_steps[i] == 2:
-#             agent_position = (agent_position[0] + 1, agent_position[1])
-#         elif random_walk_steps[i] == 3:
-#             agent_position = (agent_position[0], agent_position[1] - 1)
-# 
-#         # update the mask
-#         for x in range(agent_position[0] - VISIBLE_RADIUS, agent_position[0] + VISIBLE_RADIUS + 1):
-#             for y in range(agent_position[1] - VISIBLE_RADIUS, agent_position[1] + VISIBLE_RADIUS + 1):
-#                 if 0 <= x < 28 and 0 <= y < 28:
-#                     mask[x][y] = 1
-# 
-#     # apply the mask to the image, but invisible pixels are random values between -1 and 1
-#     #noise = np.clip(np.random.normal(0.0, 0.2, (28, 28)), -1, 1)
-#     noise = np.zeros((28, 28))
-# 
-# 
-#     masked_image = np.where(mask == 1, image, noise)
-# 
-# 
-#     # # display all three arrays for debugging
-#     # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-#     # ax1.imshow(image, cmap='gray')
-#     # ax2.imshow(mask, cmap='gray')
-#     # ax3.imshow(masked_image, cmap='gray')
-#     # plt.show()
-# 
-#     return masked_image
+    acgan.train(epochs=2600, batch_size=32, sample_interval=200)
