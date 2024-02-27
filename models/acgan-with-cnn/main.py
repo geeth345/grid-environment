@@ -9,7 +9,7 @@ from keras.datasets import mnist
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, multiply
 from keras.layers import BatchNormalization, Activation, Embedding, ZeroPadding2D
 from keras.layers import LeakyReLU
-from keras.layers import UpSampling2D, Conv2D
+from keras.layers import UpSampling2D, Conv2D, Conv2DTranspose, MaxPooling2D, concatenate
 from keras.models import Sequential, Model, load_model
 from keras.optimizers.legacy import Adam
 
@@ -37,11 +37,11 @@ class ACGAN():
         self.num_classes = 10
         self.latent_dim = 100
         
-        self.masking_function = Mask(visible_radius=1, direction_change_chance=0.7, inverted_mask=False, add_noise=False)
+        self.masking_function = Mask(visible_radius=1, direction_change_chance=0.7, inverted_mask=False, add_noise=True)
 
 
-        optimizer = Adam(0.0002, 0.5)
-        optimizer2 = Adam(0.0001, 0.5)
+        optimizer = Adam(0.0008, 0.5)
+        optimizer2 = Adam(0.0004, 0.5)
         losses = ['binary_crossentropy', 'sparse_categorical_crossentropy']
 
         # Build and compile the discriminator
@@ -100,7 +100,7 @@ class ACGAN():
         # create a normalised and masked version of the test set
         print('Creating masked test set')
         self.X_test = (self.X_test.astype(np.float32) - 127.5) / 127.5
-        self.X_test_masked = np.array([mask(img) for img in tqdm(self.X_test)])
+        self.X_test_masked = np.array([self.masking_function.mask(img) for img in tqdm(self.X_test)])
 
 
         # create a list of lists of the indexes of the test set images with each label
@@ -120,35 +120,45 @@ class ACGAN():
 
 
     def build_generator(self):
+        # Encoder
+        inputs = Input(shape=self.img_shape)
 
-        model = Sequential()
+        # Encoder: Downsample 1
+        conv1 = Conv2D(64, (3, 3), activation='relu', padding='same')(inputs)
+        conv1 = BatchNormalization(momentum=0.8)(conv1)
+        conv1 = Activation("relu")(conv1)
+        conv1_pool = MaxPooling2D(pool_size=(2, 2))(conv1)
 
-        model.add(Conv2D(64, kernel_size=3, strides=1, padding="same", input_shape=self.img_shape))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))
+        # Encoder: Downsample 2
+        conv2 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv1_pool)
+        conv2 = BatchNormalization(momentum=0.8)(conv2)
+        conv2 = Activation("relu")(conv2)
+        conv2_pool = MaxPooling2D(pool_size=(2, 2))(conv2)
 
-        # Adding additional Conv2D layers
-        model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))
+        # Bottleneck
+        conv3 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv2_pool)
+        conv3 = BatchNormalization(momentum=0.8)(conv3)
+        conv3 = Activation("relu")(conv3)
 
-        model.add(Conv2D(64, kernel_size=3, strides=1, padding="same"))
-        model.add(Activation("relu"))
-        model.add(BatchNormalization(momentum=0.8))
+        # Decoder: Upsample 1
+        up1 = Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same')(conv3)
+        up1 = concatenate([up1, conv2], axis=3)
+        conv4 = Conv2D(128, (3, 3), activation='relu', padding='same')(up1)
+        conv4 = BatchNormalization(momentum=0.8)(conv4)
+        conv4 = Activation("relu")(conv4)
 
-        # Final Conv2D layer to reconstruct the image
-        model.add(Conv2D(self.channels, kernel_size=3, strides=1, padding='same'))
-        model.add(Activation("tanh"))
+        # Decoder: Upsample 2
+        up2 = Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same')(conv4)
+        up2 = concatenate([up2, conv1], axis=3)
+        conv5 = Conv2D(64, (3, 3), activation='relu', padding='same')(up2)
+        conv5 = BatchNormalization(momentum=0.8)(conv5)
+        conv5 = Activation("relu")(conv5)
 
+        # Output layer
+        output_img = Conv2D(self.channels, (3, 3), activation='tanh', padding='same')(conv5)
 
-        model.summary()
+        return Model(inputs, output_img)
 
-        # use masked images as inputs to the model
-        masked_image = Input(shape=self.img_shape)
-
-        img = model(masked_image)
-
-        return Model(masked_image, img)
 
     def build_discriminator(self):
 
@@ -210,7 +220,7 @@ class ACGAN():
             imgs = X_train[idx]
 
             # Generating masked images for training the generator
-            masked_imgs = np.array([mask(img) for img in imgs])
+            masked_imgs = np.array([self.masking_function.mask(img) for img in imgs])
 
             # Generate a half batch of new images
             gen_imgs = self.generator.predict(masked_imgs, verbose=0)
@@ -358,65 +368,64 @@ class ACGAN():
 
 
 
-# from tqdm import tqdm
-# import matplotlib.pyplot as plt
+# old masking function
 
 
-# parameters
-RANDOM_WALK_LENGTH = 40
-VISIBLE_RADIUS = 5
-
-# given a 28*28 numpy array, apply a mask and return the masked image
-def mask(image, walk_length=RANDOM_WALK_LENGTH, visible_radius=VISIBLE_RADIUS):
-
-    if len(image.shape) == 3:
-        image = image[:,:,0]
-
-
-    # assume the image is a 28x28 numpy array
-    assert image.shape == (28, 28)
-
-
-    # randomly select a starting position
-    agent_position = (random.randint(7, 20), random.randint(7, 20))
-    random_walk_steps = [random.randint(0, 3) for _ in range(RANDOM_WALK_LENGTH)]
-
-    # create the mask
-    mask = np.zeros((28, 28))
-    for i in range(RANDOM_WALK_LENGTH):
-        # update the agent position
-        if random_walk_steps[i] == 0:
-            agent_position = (agent_position[0] - 1, agent_position[1])
-        elif random_walk_steps[i] == 1:
-            agent_position = (agent_position[0], agent_position[1] + 1)
-        elif random_walk_steps[i] == 2:
-            agent_position = (agent_position[0] + 1, agent_position[1])
-        elif random_walk_steps[i] == 3:
-            agent_position = (agent_position[0], agent_position[1] - 1)
-
-        # update the mask
-        for x in range(agent_position[0] - VISIBLE_RADIUS, agent_position[0] + VISIBLE_RADIUS + 1):
-            for y in range(agent_position[1] - VISIBLE_RADIUS, agent_position[1] + VISIBLE_RADIUS + 1):
-                if 0 <= x < 28 and 0 <= y < 28:
-                    mask[x][y] = 1
-
-    # apply the mask to the image, but invisible pixels are random values between 0 and 1
-    noise = np.clip(np.random.normal(0.0, 0.2, (28, 28)), -1, 1)
-    #noise = np.zeros((28, 28))
-
-
-    masked_image = np.where(mask == 1, image, noise)
-
-    #
-    # # display all three arrays for debugging
-    # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
-    # ax1.imshow(image, cmap='gray')
-    # ax2.imshow(mask, cmap='gray')
-    # ax3.imshow(masked_image, cmap='gray')
-    # plt.show()
-
-    return masked_image
-
+# # parameters
+# RANDOM_WALK_LENGTH = 40
+# VISIBLE_RADIUS = 5
+#
+# # given a 28*28 numpy array, apply a mask and return the masked image
+# def mask(image, walk_length=RANDOM_WALK_LENGTH, visible_radius=VISIBLE_RADIUS):
+#
+#     if len(image.shape) == 3:
+#         image = image[:,:,0]
+#
+#
+#     # assume the image is a 28x28 numpy array
+#     assert image.shape == (28, 28)
+#
+#
+#     # randomly select a starting position
+#     agent_position = (random.randint(7, 20), random.randint(7, 20))
+#     random_walk_steps = [random.randint(0, 3) for _ in range(RANDOM_WALK_LENGTH)]
+#
+#     # create the mask
+#     mask = np.zeros((28, 28))
+#     for i in range(RANDOM_WALK_LENGTH):
+#         # update the agent position
+#         if random_walk_steps[i] == 0:
+#             agent_position = (agent_position[0] - 1, agent_position[1])
+#         elif random_walk_steps[i] == 1:
+#             agent_position = (agent_position[0], agent_position[1] + 1)
+#         elif random_walk_steps[i] == 2:
+#             agent_position = (agent_position[0] + 1, agent_position[1])
+#         elif random_walk_steps[i] == 3:
+#             agent_position = (agent_position[0], agent_position[1] - 1)
+#
+#         # update the mask
+#         for x in range(agent_position[0] - VISIBLE_RADIUS, agent_position[0] + VISIBLE_RADIUS + 1):
+#             for y in range(agent_position[1] - VISIBLE_RADIUS, agent_position[1] + VISIBLE_RADIUS + 1):
+#                 if 0 <= x < 28 and 0 <= y < 28:
+#                     mask[x][y] = 1
+#
+#     # apply the mask to the image, but invisible pixels are random values between 0 and 1
+#     noise = np.clip(np.random.normal(0.0, 0.2, (28, 28)), -1, 1)
+#     #noise = np.zeros((28, 28))
+#
+#
+#     masked_image = np.where(mask == 1, image, noise)
+#
+#     #
+#     # # display all three arrays for debugging
+#     # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+#     # ax1.imshow(image, cmap='gray')
+#     # ax2.imshow(mask, cmap='gray')
+#     # ax3.imshow(masked_image, cmap='gray')
+#     # plt.show()
+#
+#     return masked_image
+#
 
 
 if __name__ == '__main__':

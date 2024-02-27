@@ -127,7 +127,6 @@ class ACGAN():
         model.add(Activation("relu"))
         model.add(BatchNormalization(momentum=0.8))
 
-        # Adding additional Conv2D layers
         model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
         model.add(Activation("relu"))
         model.add(BatchNormalization(momentum=0.8))
@@ -136,7 +135,6 @@ class ACGAN():
         model.add(Activation("relu"))
         model.add(BatchNormalization(momentum=0.8))
 
-        # Final Conv2D layer to reconstruct the image
         model.add(Conv2D(self.channels, kernel_size=3, strides=1, padding='same'))
         model.add(Activation("tanh"))
 
@@ -157,15 +155,18 @@ class ACGAN():
         model.add(Conv2D(16, kernel_size=3, strides=2, input_shape=self.img_shape, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
+        model.add(BatchNormalization(momentum=0.8))
+
         model.add(Conv2D(32, kernel_size=3, strides=2, padding="same"))
-        model.add(ZeroPadding2D(padding=((0,1),(0,1))))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
+
         model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))
         model.add(BatchNormalization(momentum=0.8))
+
         model.add(Conv2D(128, kernel_size=3, strides=1, padding="same"))
         model.add(LeakyReLU(alpha=0.2))
         model.add(Dropout(0.25))

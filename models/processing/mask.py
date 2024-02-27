@@ -68,7 +68,7 @@ class Mask:
 
         # apply the mask to the image, but invisible pixels are random values between 0 and 1
         if self.add_noise:
-            noise = np.clip(np.random.normal(0.0, 0.2, (28, 28)), -1, 1)
+            noise = np.clip(np.random.normal(0.0, 1, (28, 28)), -1, 1)
         else:
             noise = np.zeros((28, 28)) - 1
 
