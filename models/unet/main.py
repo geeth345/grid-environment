@@ -37,9 +37,14 @@ class U_Net():
         self.discriminator.compile(loss=['binary_crossentropy', 'sparse_categorical_crossentropy'],
                                    optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
-        # The autoencoder (encoder, decoder)
+        # The generator unet
         self.generator = self.build_unet()
         self.generator.compile(loss='mean_squared_error', optimizer=Adam(0.0008, 0.5))
+
+        print("Generator Summary")
+        print(self.generator.summary())
+        print("Discriminator Summary")
+        print(self.discriminator.summary())
 
 
 
@@ -51,7 +56,7 @@ class U_Net():
         valid = self.discriminator(gen_img)
         self.full_model = Model([masked_img, mask], valid)
         self.full_model.compile(loss=['binary_crossentropy', 'sparse_categorical_crossentropy'],
-                                optimizer=Adam(0.0002, 0.5))
+                                optimizer=Adam(0.0008, 0.5))
 
         # load the mnist dataset
         (X_train, y_train), (X_test, y_test) = mnist.load_data()
@@ -62,7 +67,7 @@ class U_Net():
         X_test = (X_test.astype(np.float32) - 127.5) / 127.5
         X_test = np.expand_dims(X_test, axis=3)
 
-        ix = np.random.randint(0, X_train.shape[0], 60000)
+        ix = np.random.randint(0, X_train.shape[0], 240000)
         X_train = X_train[ix]
         y_train = y_train[ix]
         X_train_masked, X_masks = self.masking_function.mask(X_train)
@@ -111,16 +116,16 @@ class U_Net():
         mask = Input(self.input_shape)
 
         # "Encoder" part of the model
-        e1i = Conv2D(8, kernel_size=3, strides=1, padding='same')(image)
-        e1m = Conv2D(4, kernel_size=3, strides=1, padding='same')(mask)
+        e1i = Conv2D(8, kernel_size=4, strides=1, padding='same')(image)
+        e1m = Conv2D(4, kernel_size=4, strides=1, padding='same')(mask)
         e1 = Concatenate()([e1i, e1m])
         e1 = LeakyReLU(alpha=0.2)(e1)
 
-        e2 = Conv2D(16, kernel_size=3, strides=2, padding='same')(e1)
+        e2 = Conv2D(16, kernel_size=4, strides=2, padding='same')(e1)
         e2 = LeakyReLU(alpha=0.2)(e2)
         e2 = Dropout(0.1)(e2)
 
-        e3 = Conv2D(32, kernel_size=3, strides=2, padding='same')(e2)
+        e3 = Conv2D(32, kernel_size=4, strides=2, padding='same')(e2)
         e3 = LeakyReLU(alpha=0.2)(e3)
         e3 = Dropout(0.1)(e3)
 
@@ -133,24 +138,30 @@ class U_Net():
         lr = Reshape((7, 7, 1))(lr)
 
         # "Decoder" part of the model
-        d1 = Conv2DTranspose(32, kernel_size=3, strides=2, padding='same')(lr)
+        d1 = Conv2DTranspose(32, kernel_size=4, strides=2, padding='same')(lr)
         d1 = LeakyReLU(alpha=0.2)(d1)
         d1 = Dropout(0.1)(d1)
 
         # skip connection
         d1 = concatenate([d1, e2])
 
-        d2 = Conv2DTranspose(16, kernel_size=3, strides=2, padding='same')(d1)
+        d2 = Conv2DTranspose(16, kernel_size=4, strides=2, padding='same')(d1)
         d2 = LeakyReLU(alpha=0.2)(d2)
         d2 = Dropout(0.1)(d2)
 
-        d3 = Conv2DTranspose(8, kernel_size=3, strides=1, padding='same')(d2)
+        d3 = Conv2DTranspose(8, kernel_size=4, strides=1, padding='same')(d2)
         d3 = LeakyReLU(alpha=0.2)(d3)
 
         # skip connection
         d3 = concatenate([d3, e1])
 
-        d4 = Conv2DTranspose(1, kernel_size=3, strides=1, padding='same')(d3)
+        d4 = Conv2D(32, kernel_size=4, strides=2, padding='same')(d3)
+        d4 = LeakyReLU(alpha=0.2)(d4)
+
+        d5 = Conv2DTranspose(16, kernel_size=4, strides=2, padding='same')(d4)
+        d5 = LeakyReLU(alpha=0.2)(d5)
+
+        d4 = Conv2DTranspose(1, kernel_size=4, strides=1, padding='same')(d3)
         d4 = Activation('tanh')(d4)
 
         unet_model = Model(inputs=[image, mask], outputs=d4)
@@ -217,8 +228,8 @@ class U_Net():
                 d_loss_fake = self.discriminator.train_on_batch(gen_imgs, [fake, labels])
                 d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
 
-            # train the full model (generator and discriminator)
-            loss2 = self.full_model.train_on_batch([masked_imgs, masks], [valid, labels])
+                # train the full model (generator and locked discriminator)
+                loss2 = self.full_model.train_on_batch([masked_imgs, masks], [valid, labels])
 
             # train just the generator model (mse loss with original images)
             loss = self.generator.train_on_batch([masked_imgs, masks], imgs)
@@ -226,11 +237,12 @@ class U_Net():
             # print the progress
             print(f"{epoch} [UNET Loss: {loss}, Gen Loss (w/D): {loss2}]")
 
-            # if at save interval, save generated sample images
+            # if at save interval, save generated sample images, and save a copy of the model
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
                 self.evaluate_using_cnn(epoch)
                 self.evaluate_using_discriminator(epoch)
+                self.backup_model()
 
     def sample_images(self, epoch):
         r, c = 10, 10
@@ -254,7 +266,7 @@ class U_Net():
             cnt = 0
             for i in range(r):
                 for j in range(c):
-                    axs[i, j].imshow(self.masked_img_samples[cnt, :, :])
+                    axs[i, j].imshow(self.masked_img_samples[cnt, :, :], interpolation='nearest')
                     axs[i, j].axis('off')
                     cnt += 1
             fig.savefig("images/0_masked.png")
@@ -263,7 +275,7 @@ class U_Net():
             cnt = 0
             for i in range(r):
                 for j in range(c):
-                    axs[i, j].imshow(self.masked_img_masks[cnt, :, :])
+                    axs[i, j].imshow(self.masked_img_masks[cnt, :, :], interpolation='nearest')
                     axs[i, j].axis('off')
                     cnt += 1
             fig.savefig("images/0_masks.png")
@@ -279,7 +291,7 @@ class U_Net():
         cnt = 0
         for i in range(r):
             for j in range(c):
-                axs[i, j].imshow(gen_imgs[cnt, :, :, 0])
+                axs[i, j].imshow(gen_imgs[cnt, :, :, 0], interpolation='nearest')
                 axs[i, j].axis('off')
                 cnt += 1
         fig.savefig("images/%d.png" % epoch)
@@ -313,9 +325,12 @@ class U_Net():
         plt.savefig('images/cnn_accuracy.png')
         plt.close()
 
+    def backup_model(self):
+        self.discriminator.save('saved_model/v3_disc.keras')
+        self.generator.save('saved_model/v3_gen.keras')
 
 
 
 if __name__ == '__main__':
-    ae = U_Net()
-    ae.train(epochs=2001, batch_size=32, sample_interval=200)
+    model = U_Net()
+    model.train(epochs=10001, batch_size=64, sample_interval=200)
