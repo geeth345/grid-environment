@@ -1,4 +1,4 @@
-# Original code source: https://github.com/JamesHarcourt7/autoencoder-perception/blob/main/utils.py
+# Code based on original work: https://github.com/JamesHarcourt7/autoencoder-perception/blob/main/utils.py
 # Original code author: James Harcourt
 
 import random
@@ -68,7 +68,7 @@ class Mask:
                 pos = (min(max(previous_direction[0] + pos[0], 1), 26),
                        min(max(previous_direction[1] + pos[1], 1), 26))
 
-                if pos[0] == 0 or pos[0] == 27 or pos[1] == 0 or pos[1] == 27:
+                if pos[0] == 1 or pos[0] == 26 or pos[1] == 1 or pos[1] == 26:
                     previous_direction = self.random_direction()
 
             # apply the mask to the image, but invisible pixels are random values between 0 and 1

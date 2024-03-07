@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 
 import pygame
 
-from tensorflow.keras.datasets import mnist
-
+from keras.datasets import mnist
+from keras.models import load_model
 
 
 class GridEnv(AECEnv):
@@ -25,15 +25,15 @@ class GridEnv(AECEnv):
 
         # model parameters
         num_agents = 1
-        self.vision_radius = 2  # how many squares beyond the current square can the agent see
+        self.vision_radius = 1  # how many squares beyond the current square can the agent see
         self.square_radius = True  # visibility window is a square
-        self.confidence_decay = 0.975  # how much to decay confidence in historic observations
+        self.confidence_decay = 1  # how much to decay confidence in historic observations
         self.binary_pixels = False  # whether to use binary or grayscale pixels
-        self.max_age = 100  # how many steps before an agent is terminated (-1 for infinite)
+        self.max_age = 300  # how many steps before an agent is terminated (-1 for infinite)
 
         # visualisation parameters
         self.visualisation_type = 'pygame'
-        self.render_wait_millis = 75
+        self.render_wait_millis = 10
         self.print_info = False
 
         self.agents = [f'agent_{i}' for i in range(num_agents)]
@@ -42,6 +42,12 @@ class GridEnv(AECEnv):
         # set the grid state based on the mnist image
         self.grid_size = grid_size
         self.grid_state = np.zeros((grid_size, grid_size))
+
+        # load the generative model
+        self.gen_model = load_model('../models/unet/saved_model/v2_gen.keras')
+
+        # load the cnn classifier model
+        self.classifier = load_model('../models/mnist-cnn/mnist_cnn.h5')
 
         self.reset()
 
@@ -58,9 +64,9 @@ class GridEnv(AECEnv):
         image = kwargs.get('image', np.zeros((self.grid_size, self.grid_size)))
         assert image.shape == (self.grid_size, self.grid_size), "Image must be of shape (grid_size, grid_size)"
 
-        # agent positions all reset to centre of grid
+        # agent positions all reset to a random position in the grid
         for id in self.agents:
-            self.agent_positions[id] = np.array([self.grid_size // 2, self.grid_size // 2])
+            self.agent_positions[id] = np.array([np.random.randint(0, self.grid_size), np.random.randint(0, self.grid_size)])
 
         # reset the other variables
         self.rewards = {agent: 0 for agent in self.agents}
@@ -69,15 +75,12 @@ class GridEnv(AECEnv):
         self.truncations = {agent: False for agent in self.agents}
         self.infos = {agent: {
             'age': 0,
-            'belief': np.zeros(image.shape),
-            'confidence':np.zeros(image.shape)
+            'belief': -np.ones(image.shape),
+            'confidence': -np.ones(image.shape)
         } for agent in self.agents}
 
-        if self.binary_pixels:
-            # load the image into the grid state, normalise the values, and then round the values to 0 or 1
-            self.grid_state = np.round(image / 255)
-        else:
-            self.grid_state = image / 255
+        # normalise the pixels
+        self.grid_state = (image.astype(np.float32) - 127.5) / 127.5
 
         # reset the agent selector
         self._agent_selector = agent_selector(self.agents)
@@ -113,6 +116,27 @@ class GridEnv(AECEnv):
                 self.infos[id]['belief'][x][y] = val
                 self.infos[id]['confidence'][x][y] = 1
 
+            # use the updated belief map to generate an image, and make predictions based on that
+            # Add an extra dimension for the channel
+            belief_map = np.expand_dims(self.infos[id]['belief'], axis=-1)
+            confidence_map = np.expand_dims(self.infos[id]['confidence'], axis=-1)
+            # Add an extra dimension for the batch size
+            belief_map = np.expand_dims(belief_map, axis=0)
+            confidence_map = np.expand_dims(confidence_map, axis=0)
+            model_input = (belief_map, confidence_map)
+
+            # print(f"Input shapes: {[x.shape for x in model_input]}")
+
+            gen_img = self.gen_model.predict(model_input, verbose=0)
+
+            # print(f"Generated image shape: {gen_img.shape}")
+
+            cnn_gen_pred = np.argmax(self.classifier.predict(gen_img, verbose=0), axis=1)[0]
+            cnn_naive_pred = np.argmax(self.classifier.predict(belief_map, verbose=0), axis=1)[0]
+
+            self.infos[id]['cnn_gen_pred'] = cnn_gen_pred
+            self.infos[id]['cnn_naive_pred'] = cnn_naive_pred
+            self.infos[id]['gen_img'] = gen_img
 
             # Updating done flag and reward for the agent (currently not doing anything)
             self._check_done(id)
@@ -159,70 +183,84 @@ class GridEnv(AECEnv):
         window.fill((0, 0, 0))
 
         # draw the visualisations
-        self.renderMatrix(self.grid_state, 0, scale)
-        self.renderMatrix(self.infos[self.agent_selection]['belief'], 280, scale)
-        self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, scale)
+        # row 1 - grid state, belief map ("masked image"), confidence map ("mask")
+        self.renderMatrix(self.grid_state, 0, 0, scale)
+        self.renderMatrix(self.infos[self.agent_selection]['belief'], 280, 0, scale)
+        self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, 0, scale)
+
+        # row 2 - generated image, cnn prediction, cnn naive prediction
+        self.renderMatrix(self.infos[self.agent_selection]['gen_img'][0], 0, 280, scale, c=(0.0, 1.0, 1.0))
+        self.renderDigit(str(self.infos[self.agent_selection]['cnn_gen_pred']), 280, 280, scale)
+        self.renderDigit(str(self.infos[self.agent_selection]['cnn_naive_pred']), 560, 280, scale)
 
         # draw the agent position
-        pygame.draw.rect(window, (255, 0, 0), (self.agent_positions[self.agent_selection][1] * scale, self.agent_positions[self.agent_selection][0] * scale, scale, scale))
+        pygame.draw.rect(window, (255, 0, 0), (
+        self.agent_positions[self.agent_selection][1] * scale, self.agent_positions[self.agent_selection][0] * scale,
+        scale, scale))
 
         pygame.display.update()
         pygame.time.delay(self.render_wait_millis)
 
-
-    def renderMatrix(self, array, xOffset, scale):
+    def renderMatrix(self, array, xOffset, yOffset, scale, c=(1.0, 1.0, 1.0)):
         for i in range(array.shape[0]):
             for j in range(array.shape[1]):
-                colour = array[i][j] * 255
-                pygame.draw.rect(window, (colour, colour, colour), (j * scale + xOffset, i * scale, scale, scale))
+                colour = (array[i][j] * 127.5) + 127.5
+                pygame.draw.rect(window, (colour * c[0], colour * c[1], colour * c[2]),
+                                 (j * scale + xOffset, i * scale + yOffset, scale, scale))
 
+    def renderDigit(self, digit, xOffset, yOffset, scale):
+        # Render the digit as text
+        font = pygame.font.Font(None, scale * 25)
+        digit_surface = font.render(digit, True, (255, 255, 255))
+        digit_rect = digit_surface.get_rect()
+        digit_rect.center = (xOffset + (scale * 28) // 2, yOffset + (scale * 28) // 2)
+        window.blit(digit_surface, digit_rect)
 
     def close(self):
         # TODO: implement this
         pass
 
 
-
-
-
 if __name__ == '__main__':
     # placeholder policy function
     def policy(currentPos, info):
-        # is there a target? if not, set one
 
-        if ('target' not in info) or (info['target'] == currentPos):
-            info['target'] = (random.randint(0, 27), random.randint(0, 27))
-        # print(info['target'])
-        # print(currentPos)
+        # is there a previous direction? if not, set one as random
+        if 'direction' not in info:
+            info['direction'] = np.random.randint(0, 4)
 
-        # move towards the target, semi-randomly
-        target = info['target']
-        xReached = (currentPos[0] == target[0])
-        yReached = (currentPos[1] == target[1])
-        if xReached:
-            return 1 if currentPos[1] < target[1] else 0
-        elif yReached:
-            return 3 if currentPos[0] < target[0] else 2
-        else:
-            if np.random.rand() < 0.5:
-                return 1 if currentPos[1] < target[1] else 0
-            else:
-                return 3 if currentPos[0] < target[0] else 2
+        # semi-randomly change direction
+        if np.random.uniform(0, 1) < 0.7:
+            info['direction'] = np.random.randint(0, 4)
+
+        # if we hit the edge of the grid, change direction so that we don't go over the edge
+        # TODO: look at this more closely
+        if currentPos[0] == 0 or currentPos[0] == 27 or currentPos[1] == 0 or currentPos[1] == 27:
+            info['direction'] = np.random.randint(0, 4)
+
+        # move in the direction
+        move = info['direction']
+
+        return move
+
 
     # import the mnist dataset
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    _, (x_test, y_test) = mnist.load_data()
+
+    # normalise the images (floats between -1 and 1)
+    # x_test = (x_test.astype(np.float32) - 127.5) / 127.5
 
     # # To show the environment updating in real time, we use pyplot interactive mode
     # plt.ion()
     pygame.init()
     pygame.display.set_caption('Grid Environment')
-    window = pygame.display.set_mode((280 * 3, 280))
+    window = pygame.display.set_mode((280 * 3, 280 * 2))
 
     # testing the environment
     env = GridEnv()
 
     for i in range(10):
-        env.reset(image=x_train[i])  # load the image
+        env.reset(image=x_test[i])  # load the image
 
         for agent in env.agent_iter():
             observation, _, terminated, truncated, info = env.last()
