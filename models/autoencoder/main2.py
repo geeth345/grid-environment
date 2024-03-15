@@ -92,6 +92,8 @@ class Autoencoder():
         self.cnn_accuracies = []
 
 
+
+
     def build_encoder(self):
 
         image = Input(self.input_shape)
@@ -154,6 +156,7 @@ class Autoencoder():
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
                 self.evaluate_using_cnn(epoch)
+                self.backup_model()
 
     
     def sample_images(self, epoch):
@@ -225,8 +228,12 @@ class Autoencoder():
         plt.close()
 
 
+    def backup_model(self):
+        self.combined_model.save('saved_model/combined_model.keras')
+
+
 
 if __name__ == '__main__':
     ae = Autoencoder()
-    ae.train(epochs=20000, batch_size=32, sample_interval=2000)
+    ae.train(epochs=20001, batch_size=32, sample_interval=2000)
         

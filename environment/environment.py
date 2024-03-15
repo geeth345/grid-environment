@@ -24,16 +24,17 @@ class GridEnv(AECEnv):
         super().__init__()
 
         # model parameters
-        num_agents = 1
+        num_agents = 10
         self.vision_radius = 1  # how many squares beyond the current square can the agent see
         self.square_radius = True  # visibility window is a square
         self.confidence_decay = 1  # how much to decay confidence in historic observations
         self.binary_pixels = False  # whether to use binary or grayscale pixels
-        self.max_age = 300  # how many steps before an agent is terminated (-1 for infinite)
+        self.max_age = 600  # how many steps before an agent is terminated (-1 for infinite)
 
         # visualisation parameters
         self.visualisation_type = 'pygame'
-        self.render_wait_millis = 10
+        self.render_wait_millis = 20
+        self.generate_imgs_interval = 25
         self.print_info = False
 
         self.agents = [f'agent_{i}' for i in range(num_agents)]
@@ -44,7 +45,7 @@ class GridEnv(AECEnv):
         self.grid_state = np.zeros((grid_size, grid_size))
 
         # load the generative model
-        self.gen_model = load_model('../models/unet/saved_model/v2_gen.keras')
+        self.gen_model = load_model('../models/unet/saved_model/v2_gen.keras', compile=False)
 
         # load the cnn classifier model
         self.classifier = load_model('../models/mnist-cnn/mnist_cnn.h5')
@@ -62,6 +63,9 @@ class GridEnv(AECEnv):
     def reset(self, **kwargs):
 
         image = kwargs.get('image', np.zeros((self.grid_size, self.grid_size)))
+        self.label = kwargs.get('label', None)
+
+
         assert image.shape == (self.grid_size, self.grid_size), "Image must be of shape (grid_size, grid_size)"
 
         # agent positions all reset to a random position in the grid
@@ -76,7 +80,10 @@ class GridEnv(AECEnv):
         self.infos = {agent: {
             'age': 0,
             'belief': -np.ones(image.shape),
-            'confidence': -np.ones(image.shape)
+            'confidence': -np.ones(image.shape),
+            'cnn_gen_pred': -1,
+            'cnn_naive_pred': -1,
+            'gen_img': np.zeros((1, 28, 28, 1))
         } for agent in self.agents}
 
         # normalise the pixels
@@ -104,7 +111,7 @@ class GridEnv(AECEnv):
                 self.agent_positions[id] = self.agent_positions[id] + np.array([1, 0])
 
             # Keep the agent within the grid bounds
-            self.agent_positions[id] = np.clip(self.agent_positions[id], 0, self.grid_size - 1)
+            self.agent_positions[id] = np.clip(self.agent_positions[id], 1, self.grid_size - 2)
 
             # adjust confidence map for historic observations, currently just using a simple decay factor
             self.infos[id]['confidence'] = self.infos[id]['confidence'] * self.confidence_decay
@@ -116,27 +123,28 @@ class GridEnv(AECEnv):
                 self.infos[id]['belief'][x][y] = val
                 self.infos[id]['confidence'][x][y] = 1
 
-            # use the updated belief map to generate an image, and make predictions based on that
-            # Add an extra dimension for the channel
-            belief_map = np.expand_dims(self.infos[id]['belief'], axis=-1)
-            confidence_map = np.expand_dims(self.infos[id]['confidence'], axis=-1)
-            # Add an extra dimension for the batch size
-            belief_map = np.expand_dims(belief_map, axis=0)
-            confidence_map = np.expand_dims(confidence_map, axis=0)
-            model_input = (belief_map, confidence_map)
+            if self.infos[id]['age'] % self.generate_imgs_interval == 0:
+                # use the updated belief map to generate an image, and make predictions based on that
+                # Add an extra dimension for the channel
+                belief_map = np.expand_dims(self.infos[id]['belief'], axis=-1)
+                confidence_map = np.expand_dims(self.infos[id]['confidence'], axis=-1)
+                # Add an extra dimension for the batch size
+                belief_map = np.expand_dims(belief_map, axis=0)
+                confidence_map = np.expand_dims(confidence_map, axis=0)
+                model_input = (belief_map, confidence_map)
 
-            # print(f"Input shapes: {[x.shape for x in model_input]}")
+                # print(f"Input shapes: {[x.shape for x in model_input]}")
 
-            gen_img = self.gen_model.predict(model_input, verbose=0)
+                gen_img = self.gen_model.predict(model_input, verbose=0)
 
-            # print(f"Generated image shape: {gen_img.shape}")
+                # print(f"Generated image shape: {gen_img.shape}")
 
-            cnn_gen_pred = np.argmax(self.classifier.predict(gen_img, verbose=0), axis=1)[0]
-            cnn_naive_pred = np.argmax(self.classifier.predict(belief_map, verbose=0), axis=1)[0]
+                cnn_gen_pred = np.argmax(self.classifier.predict(gen_img, verbose=0), axis=1)[0]
+                cnn_naive_pred = np.argmax(self.classifier.predict(belief_map, verbose=0), axis=1)[0]
 
-            self.infos[id]['cnn_gen_pred'] = cnn_gen_pred
-            self.infos[id]['cnn_naive_pred'] = cnn_naive_pred
-            self.infos[id]['gen_img'] = gen_img
+                self.infos[id]['cnn_gen_pred'] = cnn_gen_pred
+                self.infos[id]['cnn_naive_pred'] = cnn_naive_pred
+                self.infos[id]['gen_img'] = gen_img
 
             # Updating done flag and reward for the agent (currently not doing anything)
             self._check_done(id)
@@ -179,6 +187,20 @@ class GridEnv(AECEnv):
         #     plt.plot(x, y, 'ro', markersize=5)
         # plt.draw()
         # plt.pause(0.2)
+
+        # classifications correct?
+        gen_correct = self.infos[self.agent_selection]['cnn_gen_pred'] == self.label
+        gen_colour = (0, 255, 0) if gen_correct else (255, 0, 0)
+        naive_correct = self.infos[self.agent_selection]['cnn_naive_pred'] == self.label
+        naive_colour = (0, 255, 0) if naive_correct else (255, 0, 0)
+
+        # collect info
+        # summarise agent's opinions
+        opinions = [info['cnn_gen_pred'] for info in env.infos.values()]
+        values, counts = np.unique(opinions, return_counts=True)
+        average_opinion = values[np.argmax(counts)]
+
+
         scale = 10
         window.fill((0, 0, 0))
 
@@ -190,13 +212,28 @@ class GridEnv(AECEnv):
 
         # row 2 - generated image, cnn prediction, cnn naive prediction
         self.renderMatrix(self.infos[self.agent_selection]['gen_img'][0], 0, 280, scale, c=(0.0, 1.0, 1.0))
-        self.renderDigit(str(self.infos[self.agent_selection]['cnn_gen_pred']), 280, 280, scale)
-        self.renderDigit(str(self.infos[self.agent_selection]['cnn_naive_pred']), 560, 280, scale)
+        self.renderDigit(str(self.infos[self.agent_selection]['cnn_gen_pred']), 280, 280, scale, c=gen_colour)
+        self.renderDigit(str(self.infos[self.agent_selection]['cnn_naive_pred']), 560, 280, scale, c=naive_colour)
 
         # draw the agent position
         pygame.draw.rect(window, (255, 0, 0), (
         self.agent_positions[self.agent_selection][1] * scale, self.agent_positions[self.agent_selection][0] * scale,
         scale, scale))
+
+        # draw the other agent's positions
+        for agent in self.agents:
+            if agent != self.agent_selection:
+                pygame.draw.rect(window, (200, 128, 10), (
+                self.agent_positions[agent][1] * scale, self.agent_positions[agent][0] * scale, scale, scale))
+
+        # print some info at the bottom
+        info = f"Agent: {self.agent_selection}, Age: {self.infos[self.agent_selection]['age']}, Correct: {gen_correct}, Naive Correct: {naive_correct}"
+        info2 = f"All Opinions: {opinions}, Modal Opinion: {average_opinion}"
+        font = pygame.font.Font(None, 36)
+        text = font.render(info, True, (255, 255, 255))
+        text2 = font.render(info2, True, (255, 255, 255))
+        window.blit(text, (0, 560))
+        window.blit(text2, (0, 585))
 
         pygame.display.update()
         pygame.time.delay(self.render_wait_millis)
@@ -208,10 +245,10 @@ class GridEnv(AECEnv):
                 pygame.draw.rect(window, (colour * c[0], colour * c[1], colour * c[2]),
                                  (j * scale + xOffset, i * scale + yOffset, scale, scale))
 
-    def renderDigit(self, digit, xOffset, yOffset, scale):
+    def renderDigit(self, digit, xOffset, yOffset, scale, c=(255, 255, 255)):
         # Render the digit as text
         font = pygame.font.Font(None, scale * 25)
-        digit_surface = font.render(digit, True, (255, 255, 255))
+        digit_surface = font.render(digit, True, c)
         digit_rect = digit_surface.get_rect()
         digit_rect.center = (xOffset + (scale * 28) // 2, yOffset + (scale * 28) // 2)
         window.blit(digit_surface, digit_rect)
@@ -230,7 +267,7 @@ if __name__ == '__main__':
             info['direction'] = np.random.randint(0, 4)
 
         # semi-randomly change direction
-        if np.random.uniform(0, 1) < 0.7:
+        if np.random.uniform(0, 1) < 0.6:
             info['direction'] = np.random.randint(0, 4)
 
         # if we hit the edge of the grid, change direction so that we don't go over the edge
@@ -254,15 +291,19 @@ if __name__ == '__main__':
     # plt.ion()
     pygame.init()
     pygame.display.set_caption('Grid Environment')
-    window = pygame.display.set_mode((280 * 3, 280 * 2))
+    window = pygame.display.set_mode(((280 * 3), (280 * 2) + 50))
 
     # testing the environment
     env = GridEnv()
 
     for i in range(10):
-        env.reset(image=x_test[i])  # load the image
+        env.reset(image=x_test[i], label=y_test[i])  # load the image
 
         for agent in env.agent_iter():
+
+            # only render if the agent is the first one
+            isFirst = agent == 'agent_0'
+
             observation, _, terminated, truncated, info = env.last()
 
             if env.print_info:
@@ -277,10 +318,23 @@ if __name__ == '__main__':
             else:
                 action = policy(observation[0], info)  # Update with actual policy
             env.step(action)
-            env.render()
+
+            if isFirst:
+                env.render()
+
             if all(env.terminations.values()):
                 print('All agents terminated')
                 break
+
+            # if isFirst:
+            #     # summarise agent's opinions
+            #     opinions = [info['cnn_gen_pred'] for info in env.infos.values()]
+            #     values, counts = np.unique(opinions, return_counts=True)
+            #     average_opinion = values[np.argmax(counts)]
+            #     print(f"Opinions of agents: {opinions}")
+            #     # print(f"Counts: {counts}")
+            #     print(f"Modal opinion: {average_opinion}")
+
 
         env.close()
 

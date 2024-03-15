@@ -5,6 +5,7 @@ from keras.layers import LeakyReLU
 from keras.layers import UpSampling2D, Conv2D, Conv2DTranspose, MaxPooling2D, Concatenate
 from keras.models import Sequential, Model, load_model
 from keras.optimizers.legacy import Adam
+from keras.losses import mean_squared_error, mean_absolute_error
 
 import keras.backend as K
 
@@ -12,6 +13,7 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from keras.src.layers import concatenate
+from keras.src.saving.object_registration import register_keras_serializable
 from tqdm import tqdm
 import random
 
@@ -22,13 +24,25 @@ sys.path.append('../processing')
 from mask2 import Mask
 
 
+# combined loss function
+@register_keras_serializable()
+def combined_loss(alpha=0.5, beta=0.5):
+    def loss(y_true, y_pred):
+        mae = mean_absolute_error(y_true, y_pred)
+        mse = mean_squared_error(y_true, y_pred)
+        loss = alpha * mae + beta * mse
+        return loss
+
+    return loss
+
+
 class U_Net():
     def __init__(self):
 
         self.input_shape = (28, 28, 1)
         self.latent_dims = 40
 
-        self.masking_function = Mask(visible_radius=1, direction_change_chance=0.7, inverted_mask=False,
+        self.masking_function = Mask(walk_length_min=100, walk_length_max=600, visible_radius=1, direction_change_chance=0.7, inverted_mask=False,
                                      add_noise=False)
 
 
@@ -59,37 +73,37 @@ class U_Net():
                                 optimizer=Adam(0.0008, 0.5))
 
         # load the mnist dataset
-        (X_train, y_train), (X_test, y_test) = mnist.load_data()
+        (self.X_train, self.y_train), (self.X_test, self.y_test) = mnist.load_data()
 
         # rescale -1 to 1
-        X_train = (X_train.astype(np.float32) - 127.5) / 127.5
-        X_train = np.expand_dims(X_train, axis=3)
-        X_test = (X_test.astype(np.float32) - 127.5) / 127.5
-        X_test = np.expand_dims(X_test, axis=3)
+        self.X_train = (self.X_train.astype(np.float32) - 127.5) / 127.5
+        self.X_train = np.expand_dims(self.X_train, axis=3)
+        self.X_test = (self.X_test.astype(np.float32) - 127.5) / 127.5
+        self.X_test = np.expand_dims(self.X_test, axis=3)
 
-        ix = np.random.randint(0, X_train.shape[0], 240000)
-        X_train = X_train[ix]
-        y_train = y_train[ix]
-        X_train_masked, X_masks = self.masking_function.mask(X_train)
-        X_test_masked, X_test_masks = self.masking_function.mask(X_test)
+        ix = np.random.randint(0, self.X_train.shape[0], 480000)
+        self.X_train = self.X_train[ix]
+        self.y_train = self.y_train[ix]
+        self.X_train_masked, self.X_masks = self.masking_function.mask(self.X_train)
+        self.X_test_masked, self.X_test_masks = self.masking_function.mask(self.X_test)
 
         # reshape back to (28, 28, 1)
-        X_train = X_train.reshape(X_train.shape[0], 28, 28, 1)
-        X_test = X_test.reshape(X_test.shape[0], 28, 28, 1)
-        X_train_masked = X_train_masked.reshape(X_train_masked.shape[0], 28, 28, 1)
-        X_test_masked = X_test_masked.reshape(X_test_masked.shape[0], 28, 28, 1)
-        X_masks = X_masks.reshape(X_masks.shape[0], 28, 28, 1)
-        X_test_masks = X_test_masks.reshape(X_test_masks.shape[0], 28, 28, 1)
+        self.X_train = self.X_train.reshape(self.X_train.shape[0], 28, 28, 1)
+        self.X_test = self.X_test.reshape(self.X_test.shape[0], 28, 28, 1)
+        self.X_train_masked = self.X_train_masked.reshape(self.X_train_masked.shape[0], 28, 28, 1)
+        self.X_test_masked = self.X_test_masked.reshape(self.X_test_masked.shape[0], 28, 28, 1)
+        self.X_masks = self.X_masks.reshape(self.X_masks.shape[0], 28, 28, 1)
+        self.X_test_masks = self.X_test_masks.reshape(self.X_test_masks.shape[0], 28, 28, 1)
 
-        # expose the data to the class
-        self.X_train = X_train
-        self.X_test = X_test
-        self.X_train_masked = X_train_masked
-        self.X_test_masked = X_test_masked
-        self.X_masks = X_masks
-        self.X_test_masks = X_test_masks
-        self.y_test = y_test
-        self.y_train = y_train
+        # # expose the data to the class
+        # self.X_train = X_train
+        # self.X_test = X_test
+        # self.X_train_masked = X_train_masked
+        # self.X_test_masked = X_test_masked
+        # self.X_masks = X_masks
+        # self.X_test_masks = X_test_masks
+        # self.y_test = y_test
+        # self.y_train = y_train
 
         # for generating samples
         # create a list of lists of the indexes of the test set images with each label
@@ -97,7 +111,7 @@ class U_Net():
         self.masked_img_samples = None
         self.masked_img_masks = None
         for i in range(10):
-            self.test_label_indices.append(np.where(y_test == i)[0])
+            self.test_label_indices.append(np.where(self.y_test == i)[0])
 
         # for model evaluation
         # load a pre-trained CNN model and see how well it performs on the reconstructed images
@@ -326,8 +340,8 @@ class U_Net():
         plt.close()
 
     def backup_model(self):
-        self.discriminator.save('saved_model/v3_disc.keras')
-        self.generator.save('saved_model/v3_gen.keras')
+        self.discriminator.save('saved_model/v2_disc.keras')
+        self.generator.save('saved_model/v2_gen.keras')
 
 
 

@@ -48,7 +48,7 @@ class Mask:
             mask = np.zeros((28, 28)).astype(int)
 
             # pick random number of walk steps
-            steps = np.random.randint(self.walk_length_min, self.walk_length_max)
+            steps = np.random.randint(self.walk_length_min, self.walk_length_max + 1)
             # pick random starting point
             pos = np.random.randint(0, 27), np.random.randint(0, 27)
 
@@ -68,7 +68,7 @@ class Mask:
                 pos = (min(max(previous_direction[0] + pos[0], 1), 26),
                        min(max(previous_direction[1] + pos[1], 1), 26))
 
-                if pos[0] == 1 or pos[0] == 26 or pos[1] == 1 or pos[1] == 26:
+                if pos[0] == 0 or pos[0] == 27 or pos[1] == 0 or pos[1] == 27:
                     previous_direction = self.random_direction()
 
             # apply the mask to the image, but invisible pixels are random values between 0 and 1
