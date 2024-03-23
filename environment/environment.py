@@ -45,7 +45,7 @@ class GridEnv(AECEnv):
         self.grid_state = np.zeros((grid_size, grid_size))
 
         # load the generative model
-        self.gen_model = load_model('../models/unet/saved_model/v2_gen.keras', compile=False)
+        self.gen_model = load_model('../models/unet/saved_model/v3_gen.keras', compile=False)
 
         # load the cnn classifier model
         self.classifier = load_model('../models/mnist-cnn/mnist_cnn.h5')
@@ -199,6 +199,9 @@ class GridEnv(AECEnv):
         opinions = [info['cnn_gen_pred'] for info in env.infos.values()]
         values, counts = np.unique(opinions, return_counts=True)
         average_opinion = values[np.argmax(counts)]
+        opinions_naive = [info['cnn_naive_pred'] for info in env.infos.values()]
+        values_naive, counts_naive = np.unique(opinions_naive, return_counts=True)
+        average_opinion_naive = values_naive[np.argmax(counts_naive)]
 
 
         scale = 10
@@ -228,12 +231,16 @@ class GridEnv(AECEnv):
 
         # print some info at the bottom
         info = f"Agent: {self.agent_selection}, Age: {self.infos[self.agent_selection]['age']}, Correct: {gen_correct}, Naive Correct: {naive_correct}"
-        info2 = f"All Opinions: {opinions}, Modal Opinion: {average_opinion}"
+        info2 = f"All Opinions:      {opinions}, Modal Opinion: {average_opinion}"
+        info3 = f"Naive Opinions: {opinions_naive}, Modal Opinion: {average_opinion_naive}"
+
         font = pygame.font.Font(None, 36)
         text = font.render(info, True, (255, 255, 255))
         text2 = font.render(info2, True, (255, 255, 255))
+        text3 = font.render(info3, True, (255, 255, 255))
         window.blit(text, (0, 560))
         window.blit(text2, (0, 585))
+        window.blit(text3, (0, 610))
 
         pygame.display.update()
         pygame.time.delay(self.render_wait_millis)
@@ -291,7 +298,7 @@ if __name__ == '__main__':
     # plt.ion()
     pygame.init()
     pygame.display.set_caption('Grid Environment')
-    window = pygame.display.set_mode(((280 * 3), (280 * 2) + 50))
+    window = pygame.display.set_mode(((280 * 3), (280 * 2) + 75))
 
     # testing the environment
     env = GridEnv()

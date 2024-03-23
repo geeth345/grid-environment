@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 
 import sys
 from processing.mask2 import Mask
@@ -18,11 +19,14 @@ to_evaluate = {
     #'unet_500e': 'unet/saved_model/unet_no_discrim_500e.keras'
 }
 
-mask_levels = range(0, 56, 4)
+mask_levels = range(0, 1000, 40)
 
 
-eval_results = {name: [] for name in to_evaluate.keys()}
-eval_results['baseline'] = []
+eval_results_acc = {name: [] for name in to_evaluate.keys()}
+eval_results_acc['baseline'] = []
+
+eval_results_psnr = {name: [] for name in to_evaluate.keys()}
+eval_results_psnr['baseline'] = []
 
 # load mnist data and rescale -1 to 1
 _, (X_test, y_test) = mnist.load_data()
@@ -35,6 +39,17 @@ models = {name: load_model(path, compile=False) for name, path in to_evaluate.it
 # load the classifier
 classifier = load_model('mnist-cnn/mnist_cnn.h5')
 
+
+def get_classifier_accuracy(X, y):
+    y_pred = classifier.predict(X).argmax(axis=1)
+    return (y_pred == y).mean()
+
+
+def get_psnr(X, y):
+    return 10 * np.log10(1 / np.mean(np.square(X - y)))
+
+
+
 for mask_level in mask_levels:
     masking_fn = Mask(walk_length_min=mask_level, walk_length_max=mask_level, visible_radius=1, direction_change_chance=0.7, inverted_mask=False, add_noise=False)
     # create a copy of the test set
@@ -45,25 +60,42 @@ for mask_level in mask_levels:
 
     for name, model in models.items():
         print(f"Evaluating {name} at mask level {mask_level}")
-        # evaluate the model
+
+        # evaluate the model using the classifier
         generated_images = model.predict([X_test_masked, X_test_masks])
-        y_pred = classifier.predict(generated_images).argmax(axis=1)
-        score = (y_pred == y_test).mean()
-        eval_results[name].append(score)
+        score = get_classifier_accuracy(generated_images, y_test)
+        eval_results_acc[name].append(score)
+
+        # evaluate the model using average PSNR
+        psnr = get_psnr(X_test, generated_images)
+        eval_results_psnr[name].append(psnr)
+
     # evaluate baseline
     print(f"Evaluating baseline at mask level {mask_level}")
-    y_pred = classifier.predict(X_test_masked).argmax(axis=1)
-    score = (y_pred == y_test).mean()
-    eval_results['baseline'].append(score)
+    score = get_classifier_accuracy(X_test_masked, y_test)
+    eval_results_acc['baseline'].append(score)
+    psnr = get_psnr(X_test, X_test_masked)
+    eval_results_psnr['baseline'].append(psnr)
 
 
 # plot the results
-for name, results in eval_results.items():
+for name, results in eval_results_acc.items():
     plt.plot(mask_levels, results, label=name)
 plt.xlabel('Mask Level (number of steps)')
 plt.ylabel('Accuracy of CNN')
 plt.title('Accuracy of CNN on Reconstructed Images at Different Mask Levels')
 plt.legend()
-plt.savefig("comparison_02.png")
-plt.show()
+plt.savefig("comparison_04.png")
+#plt.show()
 plt.close()
+
+for name, results in eval_results_psnr.items():
+    plt.plot(mask_levels, results, label=name)
+plt.xlabel('Mask Level (number of steps)')
+plt.ylabel('PSNR')
+plt.title('PSNR of Reconstructed Images at Different Mask Levels')
+plt.legend()
+plt.savefig("comparison_05.png")
+#plt.show()
+plt.close()
+
