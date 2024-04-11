@@ -72,28 +72,40 @@ class U_Net():
         self.full_model.compile(loss=['binary_crossentropy', 'sparse_categorical_crossentropy'],
                                 optimizer=Adam(0.0008, 0.5))
 
-        # load the mnist dataset
-        (self.X_train, self.y_train), (self.X_test, self.y_test) = mnist.load_data()
+        # load the dataset from the file
+        data = np.load('../../data/masked100_600_0.7.npz')
+        self.X_train = data['X_train']
+        self.y_train = data['y_train']
+        self.X_test = data['X_test']
+        self.y_test = data['y_test']
+        self.X_train_masked = data['X_train_masked']
+        self.X_masks = data['X_masks']
+        self.X_test_masked = data['X_test_masked']
+        self.X_test_masks = data['X_test_masks']
 
-        # rescale -1 to 1
-        self.X_train = (self.X_train.astype(np.float32) - 127.5) / 127.5
-        self.X_train = np.expand_dims(self.X_train, axis=3)
-        self.X_test = (self.X_test.astype(np.float32) - 127.5) / 127.5
-        self.X_test = np.expand_dims(self.X_test, axis=3)
 
-        ix = np.random.randint(0, self.X_train.shape[0], 480000)
-        self.X_train = self.X_train[ix]
-        self.y_train = self.y_train[ix]
-        self.X_train_masked, self.X_masks = self.masking_function.mask(self.X_train)
-        self.X_test_masked, self.X_test_masks = self.masking_function.mask(self.X_test)
-
-        # reshape back to (28, 28, 1)
-        self.X_train = self.X_train.reshape(self.X_train.shape[0], 28, 28, 1)
-        self.X_test = self.X_test.reshape(self.X_test.shape[0], 28, 28, 1)
-        self.X_train_masked = self.X_train_masked.reshape(self.X_train_masked.shape[0], 28, 28, 1)
-        self.X_test_masked = self.X_test_masked.reshape(self.X_test_masked.shape[0], 28, 28, 1)
-        self.X_masks = self.X_masks.reshape(self.X_masks.shape[0], 28, 28, 1)
-        self.X_test_masks = self.X_test_masks.reshape(self.X_test_masks.shape[0], 28, 28, 1)
+       # # load the mnist dataset
+        # (self.X_train, self.y_train), (self.X_test, self.y_test) = mnist.load_data()
+        #
+        # # rescale -1 to 1
+        # self.X_train = (self.X_train.astype(np.float32) - 127.5) / 127.5
+        # self.X_train = np.expand_dims(self.X_train, axis=3)
+        # self.X_test = (self.X_test.astype(np.float32) - 127.5) / 127.5
+        # self.X_test = np.expand_dims(self.X_test, axis=3)
+        #
+        # ix = np.random.randint(0, self.X_train.shape[0], 480000)
+        # self.X_train = self.X_train[ix]
+        # self.y_train = self.y_train[ix]
+        # self.X_train_masked, self.X_masks = self.masking_function.mask(self.X_train)
+        # self.X_test_masked, self.X_test_masks = self.masking_function.mask(self.X_test)
+        #
+        # # reshape back to (28, 28, 1)
+        # self.X_train = self.X_train.reshape(self.X_train.shape[0], 28, 28, 1)
+        # self.X_test = self.X_test.reshape(self.X_test.shape[0], 28, 28, 1)
+        # self.X_train_masked = self.X_train_masked.reshape(self.X_train_masked.shape[0], 28, 28, 1)
+        # self.X_test_masked = self.X_test_masked.reshape(self.X_test_masked.shape[0], 28, 28, 1)
+        # self.X_masks = self.X_masks.reshape(self.X_masks.shape[0], 28, 28, 1)
+        # self.X_test_masks = self.X_test_masks.reshape(self.X_test_masks.shape[0], 28, 28, 1)
 
         # # expose the data to the class
         # self.X_train = X_train
@@ -347,4 +359,4 @@ class U_Net():
 
 if __name__ == '__main__':
     model = U_Net()
-    model.train(epochs=10001, batch_size=64, sample_interval=200)
+    model.train(epochs=4001, batch_size=32, sample_interval=200)

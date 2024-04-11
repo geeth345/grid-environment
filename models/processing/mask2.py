@@ -1,4 +1,4 @@
-# Code based on original work: https://github.com/JamesHarcourt7/autoencoder-perception/blob/main/utils.py
+# Code uses parts from original work: https://github.com/JamesHarcourt7/autoencoder-perception/blob/main/utils.py
 # Original code author: James Harcourt
 
 import random
@@ -14,7 +14,6 @@ VISIBLE_RADIUS = 5
 INVERTED_MASK = False
 DIRECTION_CHANGE_CHANCE = 1.0
 ADD_NOISE = True
-LIMIT_START_POSITION = False
 DEBUG = False
 
 
@@ -22,14 +21,13 @@ class Mask:
 
     def __init__(self, walk_length_min=RANDOM_WALK_LENGTH_MIN, walk_length_max=RANDOM_WALK_LENGTH_MAX,
                  visible_radius=VISIBLE_RADIUS, inverted_mask=INVERTED_MASK,
-                 direction_change_chance=DIRECTION_CHANGE_CHANCE, add_noise=ADD_NOISE, limit_start_position=LIMIT_START_POSITION, debug=DEBUG):
+                 direction_change_chance=DIRECTION_CHANGE_CHANCE, add_noise=ADD_NOISE, debug=DEBUG):
         self.walk_length_min = walk_length_min
         self.walk_length_max = walk_length_max
         self.visible_radius = visible_radius
         self.inverted_mask = inverted_mask
         self.direction_change_chance = direction_change_chance
         self.add_noise = add_noise
-        self.limit_start_position = limit_start_position
         self.debug = debug
 
     def mask(self, images):
@@ -50,10 +48,8 @@ class Mask:
             # pick random number of walk steps
             steps = np.random.randint(self.walk_length_min, self.walk_length_max + 1)
             # pick random starting point
-            pos = np.random.randint(0, 27), np.random.randint(0, 27)
+            pos = np.random.randint(0 + self.visible_radius, 27 - self.visible_radius), np.random.randint(0 + self.visible_radius, 27 - self.visible_radius)
 
-            if self.limit_start_position:
-                pos = (np.random.randint(7, 20), np.random.randint(7, 20))
 
             previous_direction = (0, 0)
 
@@ -62,7 +58,7 @@ class Mask:
                     for j in range((self.visible_radius * 2) + 1):
                         mask[pos[0] + i - self.visible_radius][pos[1] + j - self.visible_radius] = 1
 
-                if np.random.uniform(0, 1) < 0.7:
+                if np.random.uniform(0, 1) < self.direction_change_chance:
                     previous_direction = self.random_direction()
 
                 pos = (min(max(previous_direction[0] + pos[0], 1), 26),

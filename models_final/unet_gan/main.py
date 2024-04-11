@@ -201,9 +201,16 @@ class UNet():
             # train the discriminator on the generated images
             d_fake_loss, d_fake_acc = self.discriminator.train_on_batch(gen_images, fake)
 
+
             #########################
             # Train Generator       #
             #########################
+
+            idx = np.random.randint(0, self.X_train.shape[0], batch_size)
+            images = self.X_train[idx]
+            masked_images = self.X_train_masked[idx]
+            masks = self.X_masks[idx]
+            labels = self.y_train[idx]
 
             # use the combined model to train the generator (discriminator weights are fixed)
             g_loss, g_acc = self.combined.train_on_batch([masked_images, masks], valid)
@@ -310,4 +317,4 @@ class UNet():
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=3001, batch_size=64, sample_interval=200)
+    unet.train(epochs=3001, batch_size=32, sample_interval=200)

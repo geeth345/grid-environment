@@ -14,7 +14,7 @@ add_noise = False
 
 
 if __name__ == "__main__":
-    masking_function = Mask(walk_length_min=100, walk_length_max=600, visible_radius=1,
+    masking_function = Mask(walk_length_min=50, walk_length_max=600, visible_radius=1,
                             direction_change_chance=0.7, inverted_mask=False,
                             add_noise=False)
 
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     X_test = (X_test.astype(np.float32) - 127.5) / 127.5
     X_test = np.expand_dims(X_test, axis=3)
 
-    ix = np.random.randint(0, X_train.shape[0], 240000)
+    ix = np.random.randint(0, X_train.shape[0], 300000)
     X_train = X_train[ix]
     y_train = y_train[ix]
     X_train_masked, X_masks = masking_function.mask(X_train)

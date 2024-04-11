@@ -1,15 +1,61 @@
 # keras imports
+from functools import partial
+
 from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concatenate, Reshape
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
-from keras.layers import GaussianNoise, Dropout
+from keras.layers import GaussianNoise, Dropout, Lambda, Layer
 from keras.models import Model, load_model
-from keras.optimizers.legacy import Adam
+from keras.optimizers.legacy import Adam, RMSprop
+from keras.models import Model
+from keras import backend as K
+import tensorflow as tf
 
 # other module imports
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import random
+
+class CriticModel(Model):
+
+    def __init__(self, critic, generator, **kwargs):
+        super(CriticModel, self).__init__(**kwargs)
+        self.critic = critic
+        self.generator = generator
+
+    def compute_gradient_penalty(self, real_images, fake_images):
+        """Calculates the gradient penalty for a batch of real and fake images."""
+        batch_size = tf.shape(real_images)[0]
+        alpha = tf.random.uniform([batch_size, 1, 1, 1], 0., 1.)
+        interpolated_images = real_images * alpha + fake_images * (1 - alpha)
+
+        with tf.GradientTape() as tape:
+            tape.watch(interpolated_images)
+            prediction = self.critic(interpolated_images, training=True)
+
+        gradients = tape.gradient(prediction, [interpolated_images])[0]
+        gradients_sqr = tf.square(gradients)
+        gradients_sqr_sum = tf.reduce_sum(gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape)))
+        gradient_l2_norm = tf.sqrt(gradients_sqr_sum)
+        gradient_penalty = tf.reduce_mean(tf.square(1 - gradient_l2_norm))
+        return gradient_penalty
+
+    def train_step(self, data):
+        real_images, masks, masked_images = data
+
+        with tf.GradientTape() as tape:
+            fake_images = self.generator([masked_images, masks], training=True)
+            real_score = self.critic(real_images, training=True)
+            fake_score = self.critic(fake_images, training=True)
+            gradient_penalty = self.compute_gradient_penalty(real_images, fake_images)
+            # WGAN-GP loss
+            critic_loss = tf.reduce_mean(fake_score) - tf.reduce_mean(
+                real_score) + 10.0 * gradient_penalty  # Lambda is 10 for gradient penalty
+
+        gradients = tape.gradient(critic_loss, self.critic.trainable_variables)
+        self.optimizer.apply_gradients(zip(gradients, self.critic.trainable_variables))
+
+        return {"critic_loss": critic_loss}
 
 
 class UNet():
@@ -19,27 +65,51 @@ class UNet():
         self.input_shape = (28, 28, 1)
         self.data_source = '../../data/masked100_600_0.7.npz'
 
-        # build the generator model
+        # build the generator and critic models
         self.generator = self.build_generator()
         self.generator.compile()
 
-        # build the discriminator model
-        self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002), metrics=['accuracy'])
+        self.critic = self.build_critic()
+
+        ############################
+        # compile the critic model #
+        ############################
+
+        self.generator.trainable = False
+
+        image = Input(self.input_shape)
+        mask = Input(self.input_shape)
+        masked_image = Input(self.input_shape)
+
+        self.critic_model = CriticModel(self.critic, self.generator)
+        self.critic_model.build(image, mask, masked_image)
+        self.critic_model.compile(optimizer=RMSprop(0.00005))
+
+
+        ###############################
+        # compile the generator model #
+        ###############################
+
+        self.critic.trainable = False
+        self.generator.trainable = True
 
         # build the combined model (generator with adversarial loss for training)
-        self.discriminator.trainable = False
         masked_image = Input(shape=self.input_shape)
         mask = Input(shape=self.input_shape)
         generated_image = self.generator([masked_image, mask])
-        validity = self.discriminator(generated_image)
+        validity = self.critic(generated_image)
         self.combined = Model([masked_image, mask], [validity])
-        self.combined.compile(loss='binary_crossentropy', optimizer=Adam(0.0002), metrics=['accuracy'])
+        self.combined.compile(loss=self.wasserstein_loss, optimizer=RMSprop(0.00005), metrics=['accuracy'])
+
 
         print("Generator Summary")
         print(self.generator.summary())
-        print("Discriminator Summary")
-        print(self.discriminator.summary())
+        print("Critic Summary")
+        print(self.critic.summary())
+        print("Critic Model Summary")
+        print(self.critic_model.summary())
+        print("Combined Model Summary")
+        print(self.combined.summary())
 
         # load the dataset from the file
         data = np.load('../../data/masked100_600_0.7.npz')
@@ -68,8 +138,19 @@ class UNet():
         self.cnn.trainable = False
         self.cnn_accuracies = []
 
+    def wasserstein_loss(self, y_true, y_pred):
+        return K.mean(y_true * y_pred)
 
-    def build_discriminator(self):
+    def compute_gradient_penalty(self, y_true, y_pred, averaged_samples):
+        gradients = K.gradients(y_pred, averaged_samples)[0]
+        gradients_sqr = K.square(gradients)
+        gradients_sqr_sum = K.sum(gradients_sqr, axis=np.arange(1, len(gradients_sqr.shape)))
+        gradient_l2_norm = K.sqrt(gradients_sqr_sum)
+        gradient_penalty = K.square(1 - gradient_l2_norm)
+        return K.mean(gradient_penalty)
+
+
+    def build_critic(self):
 
         image = Input(self.input_shape)
         x = Conv2D(16, kernel_size=3, strides=2, input_shape=self.input_shape, padding="same")(image)
@@ -92,7 +173,7 @@ class UNet():
 
         validity_dense = Dense(128)(x_flat)
         validity_dense = LeakyReLU(alpha=0.2)(validity_dense)
-        validity = Dense(1, activation='sigmoid', name='validity')(validity_dense)
+        validity = Dense(1, name='validity')(validity_dense)
 
         model = Model(inputs=[image], outputs=[validity])
 
@@ -170,12 +251,12 @@ class UNet():
 
         return model
 
-
     def train(self, epochs, batch_size, sample_interval):
 
         # Adversarial ground truths
-        valid = np.ones((batch_size, 1))
-        fake = np.zeros((batch_size, 1))
+        valid = -np.ones((batch_size, 1))
+        fake = np.ones((batch_size, 1))
+        dummy = np.zeros((batch_size, 1))
 
         for epoch in tqdm(range(epochs)):
 
@@ -190,36 +271,26 @@ class UNet():
             labels = self.y_train[idx]
 
             ########################
-            # Train Discriminator #
+            # Train Critic         #
             ########################
 
             # generate a batch of images using the generator
             gen_images = self.generator.predict([masked_images, masks], verbose=0)
 
-            # train the discrimnator on the real images
-            d_real_loss, d_real_acc = self.discriminator.train_on_batch(images, valid)
-
-            # train the discriminator on the generated images
-            d_fake_loss, d_fake_acc = self.discriminator.train_on_batch(gen_images, fake)
+            d_loss = self.critic_model.train_on_batch([images, masks, masked_images], [valid, fake, dummy])
 
             #########################
             # Train Generator       #
             #########################
 
-            # use the combined model to train the generator (discriminator weights are fixed)
-            g_loss, g_acc = self.combined.train_on_batch([masked_images, masks], valid)
+            g_loss = self.combined.train_on_batch([masked_images, masks], valid)
 
-            # print the progress
-            #print(f"{epoch} [Generator Loss: {g_loss}]")
+            #########################
+            # Record Progress       #
+            #########################
 
-
-            # calculate metrics and write to file
-            mse = np.mean(np.square(images - self.generator.predict([masked_images, masks], verbose=0)))
-            psnr = 10 * np.log10(1 / mse)
-            if epoch == 0:
-                self.metrics_file.write("Epoch,mse,psnr,d_real_loss,d_real_acc,d_fake_loss,d_fake_acc,g_loss,g_acc\n")
-            self.metrics_file.write(f"{epoch},{mse},{psnr},{d_real_loss},{d_real_acc},{d_fake_loss},{d_fake_acc},{g_loss},{g_acc}\n")
-
+            print(f"{epoch} [Generator Loss: {g_loss}] [Critic Loss: {d_loss}]")
+            # TODO: write to metrics file
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
                 self.evaluate_using_cnn(epoch)
@@ -306,7 +377,7 @@ class UNet():
 
     def backup_model(self, epoch):
         self.generator.save(f'saved_model/gen.keras')
-        self.discriminator.save(f'saved_model/disc.keras')
+        self.critic.save(f'saved_model/disc.keras')
 
 
 if __name__ == '__main__':

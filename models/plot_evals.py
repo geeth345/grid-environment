@@ -17,6 +17,7 @@ to_evaluate = {
     'unet_gan': 'unet/saved_model/unet_gan.keras',
     'unet_combined': 'unet/saved_model/v2_gen.keras',
     #'unet_500e': 'unet/saved_model/unet_no_discrim_500e.keras'
+    'unet2' : '../models_final/unet_mse/saved_model/gen.keras'
 }
 
 mask_levels = range(0, 1000, 40)
@@ -85,7 +86,7 @@ plt.xlabel('Mask Level (number of steps)')
 plt.ylabel('Accuracy of CNN')
 plt.title('Accuracy of CNN on Reconstructed Images at Different Mask Levels')
 plt.legend()
-plt.savefig("comparison_04.png")
+plt.savefig("comparison_06.png")
 #plt.show()
 plt.close()
 
@@ -95,7 +96,7 @@ plt.xlabel('Mask Level (number of steps)')
 plt.ylabel('PSNR')
 plt.title('PSNR of Reconstructed Images at Different Mask Levels')
 plt.legend()
-plt.savefig("comparison_05.png")
+plt.savefig("comparison_07.png")
 #plt.show()
 plt.close()
 

@@ -45,7 +45,7 @@ class GridEnv(AECEnv):
         self.grid_state = np.zeros((grid_size, grid_size))
 
         # load the generative model
-        self.gen_model = load_model('../models/unet/saved_model/v3_gen.keras', compile=False)
+        self.gen_model = load_model('../models_final/unet_mse/saved_model/gen.keras', compile=False)
 
         # load the cnn classifier model
         self.classifier = load_model('../models/mnist-cnn/mnist_cnn.h5')
@@ -80,7 +80,7 @@ class GridEnv(AECEnv):
         self.infos = {agent: {
             'age': 0,
             'belief': -np.ones(image.shape),
-            'confidence': -np.ones(image.shape),
+            'confidence': np.zeros(image.shape),
             'cnn_gen_pred': -1,
             'cnn_naive_pred': -1,
             'gen_img': np.zeros((1, 28, 28, 1))
@@ -214,10 +214,19 @@ class GridEnv(AECEnv):
         self.renderMatrix(self.infos[self.agent_selection]['confidence'], 560, 0, scale)
 
         # row 2 - generated image, cnn prediction, cnn naive prediction
-        self.renderMatrix(self.infos[self.agent_selection]['gen_img'][0], 0, 280, scale, c=(0.0, 1.0, 1.0))
+        self.renderMatrix(self.infos[self.agent_selection]['gen_img'][0], 0, 280, scale, c=(0, 255, 255))
         self.renderDigit(str(self.infos[self.agent_selection]['cnn_gen_pred']), 280, 280, scale, c=gen_colour)
         self.renderDigit(str(self.infos[self.agent_selection]['cnn_naive_pred']), 560, 280, scale, c=naive_colour)
 
+
+        # # debug
+        # fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
+        # ax1.imshow(self.infos[self.agent_selection]['gen_img'][0], cmap='gray')
+        # ax2.imshow(self.infos[self.agent_selection]['belief'], cmap='gray')
+        # ax3.imshow(self.infos[self.agent_selection]['confidence'], cmap='gray')
+        # plt.show()
+        
+        
         # draw the agent position
         pygame.draw.rect(window, (255, 0, 0), (
         self.agent_positions[self.agent_selection][1] * scale, self.agent_positions[self.agent_selection][0] * scale,
@@ -245,10 +254,10 @@ class GridEnv(AECEnv):
         pygame.display.update()
         pygame.time.delay(self.render_wait_millis)
 
-    def renderMatrix(self, array, xOffset, yOffset, scale, c=(1.0, 1.0, 1.0)):
+    def renderMatrix(self, array, xOffset, yOffset, scale, c=(255, 255, 255)):
         for i in range(array.shape[0]):
             for j in range(array.shape[1]):
-                colour = (array[i][j] * 127.5) + 127.5
+                colour = (array[i][j] + 1.0) / 2
                 pygame.draw.rect(window, (colour * c[0], colour * c[1], colour * c[2]),
                                  (j * scale + xOffset, i * scale + yOffset, scale, scale))
 
@@ -294,7 +303,7 @@ if __name__ == '__main__':
     # normalise the images (floats between -1 and 1)
     # x_test = (x_test.astype(np.float32) - 127.5) / 127.5
 
-    # # To show the environment updating in real time, we use pyplot interactive mode
+    # # To show the environment updating in real time, we use pygame
     # plt.ion()
     pygame.init()
     pygame.display.set_caption('Grid Environment')

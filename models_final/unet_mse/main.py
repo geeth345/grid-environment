@@ -3,6 +3,7 @@ from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concaten
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
 from keras.models import Model, load_model
 from keras.optimizers.legacy import Adam
+from keras.losses import sparse_categorical_crossentropy
 
 # other module imports
 import numpy as np
@@ -60,32 +61,32 @@ class UNet():
         e1_image = Conv2D(8, kernel_size=(4, 4), strides=(1, 1), padding='same')(image)
         e1_mask = Conv2D(8, kernel_size=(4, 4), strides=(1, 1), padding='same')(mask)
         e1 = Concatenate()([e1_image, e1_mask])
-        e1 = BatchNormalization()(e1)
+        #e1 = BatchNormalization()(e1)
         e1 = LeakyReLU(alpha=0.2)(e1)
 
         e2 = Conv2D(16, kernel_size=(4, 4), strides=(2, 2), padding='same')(e1)
-        e2 = BatchNormalization()(e2)
+        #e2 = BatchNormalization()(e2)
         e2 = LeakyReLU(alpha=0.2)(e2)
 
         e3 = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), padding='same')(e2)
-        e3 = BatchNormalization()(e3)
+        #e3 = BatchNormalization()(e3)
         e3 = LeakyReLU(alpha=0.2)(e3)
 
         e4 = Dense(100)(Flatten()(e3))
-        e4 = BatchNormalization()(e4)
+        #e4 = BatchNormalization()(e4)
         e4 = LeakyReLU(alpha=0.2)(e4)
 
         lr = Dense(64)(e4)
-        lr = BatchNormalization()(lr)
+        #lr = BatchNormalization()(lr)
         lr = LeakyReLU(alpha=0.2)(lr)
 
         d4 = Dense(196)(lr)
-        d4 = BatchNormalization()(d4)
+        #d4 = BatchNormalization()(d4)
         d4 = LeakyReLU(alpha=0.2)(d4)
 
         d3 = Reshape((7, 7, 4))(d4)
         d3 = Conv2DTranspose(32, kernel_size=(4, 4), strides=(1, 1), padding='same')(d3)
-        d3 = BatchNormalization()(d3)
+       # d3 = BatchNormalization()(d3)
         d3 = LeakyReLU(alpha=0.2)(d3)
 
         # d2 = UpSampling2D(size=(2, 2))(d3)
@@ -94,7 +95,7 @@ class UNet():
         # d2 = LeakyReLU(alpha=0.2)(d2)
 
         d2 = Conv2DTranspose(16, kernel_size=(4, 4), strides=(2, 2), padding='same')(d3)
-        d2 = BatchNormalization()(d2)
+        #d2 = BatchNormalization()(d2)
         d2 = LeakyReLU(alpha=0.2)(d2)
         d2 = Concatenate()([d2, e2])
 
@@ -104,16 +105,16 @@ class UNet():
         # d1 = LeakyReLU(alpha=0.2)(d1)
 
         d1 = Conv2DTranspose(8, kernel_size=(4, 4), strides=(2, 2), padding='same')(d2)
-        d1 = BatchNormalization()(d1)
+        #d1 = BatchNormalization()(d1)
         d1 = LeakyReLU(alpha=0.2)(d1)
         d1 = Concatenate()([d1, e1])
 
         d0 = Conv2DTranspose(4, kernel_size=(4, 4), strides=(1, 1), padding='same')(d1)
-        d0 = BatchNormalization()(d0)
+        #d0 = BatchNormalization()(d0)
         d0 = LeakyReLU(alpha=0.2)(d0)
 
         d0 = Conv2DTranspose(2, kernel_size=(4, 4), strides=(1, 1), padding='same')(d0)
-        d0 = BatchNormalization()(d0)
+        #d0 = BatchNormalization()(d0)
         d0 = LeakyReLU(alpha=0.2)(d0)
 
         d0 = Conv2DTranspose(1, kernel_size=(4, 4), strides=(1, 1), padding='same')(d0)
@@ -142,13 +143,18 @@ class UNet():
             # print the progress
             print(f"{epoch} [Generator Loss: {loss}]")
 
-
+            gen_imgs = self.generator.predict([masked_images, masks], verbose=0)
             # calculate metrics and write to file
-            mse = np.mean(np.square(images - self.generator.predict([masked_images, masks], verbose=0)))
+            mse = np.mean(np.square(images - gen_imgs))
             psnr = 10 * np.log10(1 / mse)
+
+            cnn_predictions = self.cnn.predict(gen_imgs, verbose=0)
+            cnn_ce_loss = np.mean(sparse_categorical_crossentropy(labels, cnn_predictions))
+            accuracy = np.mean(np.argmax(cnn_predictions, axis=1) == labels)
+
             if epoch == 0:
-                self.metrics_file.write("Epoch,GeneratorLoss,MSE,PSNR\n")
-            self.metrics_file.write(f"{epoch},{loss},{mse},{psnr}\n")
+                self.metrics_file.write("Epoch,GeneratorLoss,MSE,PSNR,CNN_CE,CNN_Acc\n")
+            self.metrics_file.write(f"{epoch},{loss},{mse},{psnr},{cnn_ce_loss},{accuracy}\n")
 
             
             if epoch % sample_interval == 0:
@@ -232,7 +238,7 @@ class UNet():
         plt.xlabel('Epoch')
         plt.ylabel('Accuracy')
         plt.title('Accuracy of Pre-Trained CNN on Reconstructed Images')
-        plt.savefig('images/cnn_accuracy.png')
+        plt.savefig('eval_images/cnn_accuracy.png')
         plt.close()
 
     def backup_model(self, epoch):
@@ -241,4 +247,4 @@ class UNet():
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=5001, batch_size=64, sample_interval=500)
+    unet.train(epochs=10001, batch_size=32, sample_interval=500)
