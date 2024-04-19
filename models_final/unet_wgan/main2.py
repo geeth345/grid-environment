@@ -1,4 +1,6 @@
 # keras imports
+import time
+
 from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concatenate, Reshape
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
 from keras.layers import GaussianNoise, Dropout
@@ -308,14 +310,14 @@ class UNet():
 
     def train(self, epochs, batch_size, sample_interval):
 
-        self.metrics_file.write("epoch,d_loss,g_loss,psnr\n")
+
 
 
         for epoch in range(epochs):
 
             metrics = {"d_loss": 0, "g_loss": 0}
 
-            if epoch <= 400:
+            if epoch <= -1:
                 # train the generotor with mse loss
                 idx = np.random.randint(0, self.X_train.shape[0], batch_size)
                 masked_images = self.X_train_masked[idx]
@@ -340,7 +342,7 @@ class UNet():
                 # Train Model          #
                 ########################
 
-                trainGenerator = epoch > 425
+                trainGenerator = epoch > 10
 
                 metrics = self.wgan.train_step(batch_size, trainGenerator=trainGenerator)
                 print(f"{epoch} [Discriminator Loss: {metrics['d_loss']}, Generator Loss: {metrics['g_loss']}]")
@@ -355,11 +357,15 @@ class UNet():
             masked_images = self.X_test_masked[idx]
             masks = self.X_test_masks[idx]
             images = self.X_test[idx]
+            labels = self.y_test[idx]
             generated_images = self.generator.predict([masked_images, masks], verbose=0)
             psnr = np.mean(10 * np.log10(1 / np.mean(np.square(images - generated_images))))
+            cnn_accuracy = np.mean(np.argmax(self.cnn.predict(generated_images, verbose=0), axis=1) == labels)
 
             # write metrics to file
-            self.metrics_file.write(f"{epoch},{metrics['d_loss']},{metrics['g_loss']},{psnr}\n")
+            if epoch == 0:
+                self.metrics_file.write("epoch,d_loss,g_loss,psnr,cnn_accuracy\n")
+            self.metrics_file.write(f"{epoch},{metrics['d_loss']},{metrics['g_loss']},{psnr},{cnn_accuracy}\n")
 
 
             if epoch % sample_interval == 0:
@@ -449,10 +455,25 @@ class UNet():
         plt.close()
 
     def backup_model(self, epoch):
-        self.generator.save(f'saved_model/gen.keras')
-        self.discriminator.save(f'saved_model/disc.keras')
+        self.generator.save(f'saved_model/gen2_{epoch}.keras')
+        self.discriminator.save(f'saved_model/disc2_{epoch}.keras')
 
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=2001, batch_size=32, sample_interval=100)
+
+    start1 = time.perf_counter()
+    start2 = time.process_time()
+
+    unet.train(epochs=4001, batch_size=64, sample_interval=100)
+
+    end1 = time.perf_counter()
+    end2 = time.process_time()
+    elapsed1 = end1 - start1
+    elapsed2 = end2 - start2
+
+    file = open('time.txt', 'w')
+    file.write(str(elapsed1) + '\n' + str(elapsed2))
+    file.close()
+    print(f"Time taken (total): {elapsed1}")
+    print(f"Time taken (process): {elapsed2}")

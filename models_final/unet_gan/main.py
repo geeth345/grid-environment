@@ -21,11 +21,25 @@ class UNet():
 
         # build the generator model
         self.generator = self.build_generator()
+        # self.generator = load_model('checkpoints/gen_900.keras')
         self.generator.compile()
+
+        # lr_schedule = keras.optimizers.schedules.ExponentialDecay(
+        #     initial_learning_rate=0.0001,
+        #     decay_steps=1000,
+        #     decay_rate=0.85)
 
         # build the discriminator model
         self.discriminator = self.build_discriminator()
-        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002), metrics=['accuracy'])
+        #self.discriminator = load_model('checkpoints/disc_900.keras')
+        self.discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.00015, 0.5, 0.9), metrics=['accuracy'])
+
+
+        print("Generator Summary")
+        print(self.generator.summary())
+        print("Discriminator Summary")
+        print(self.discriminator.summary())
+
 
         # build the combined model (generator with adversarial loss for training)
         self.discriminator.trainable = False
@@ -34,12 +48,9 @@ class UNet():
         generated_image = self.generator([masked_image, mask])
         validity = self.discriminator(generated_image)
         self.combined = Model([masked_image, mask], [validity])
-        self.combined.compile(loss='binary_crossentropy', optimizer=Adam(0.0002), metrics=['accuracy'])
+        self.combined.compile(loss='binary_crossentropy', optimizer=Adam(0.00020, 0.5, 0.9), metrics=['accuracy'])
 
-        print("Generator Summary")
-        print(self.generator.summary())
-        print("Discriminator Summary")
-        print(self.discriminator.summary())
+
 
         # load the dataset from the file
         data = np.load('../../data/masked100_600_0.7.npz')
@@ -176,7 +187,11 @@ class UNet():
         valid = np.ones((batch_size, 1))
         fake = np.zeros((batch_size, 1))
 
-        for epoch in tqdm(range(epochs)):
+        # accuracy = 0
+        # best = -9999999
+        # best_epoch = 1000
+
+        for epoch in tqdm(range(0, epochs)):
 
             ########################
             # Prepare Data         #
@@ -206,11 +221,10 @@ class UNet():
             # Train Generator       #
             #########################
 
-            idx = np.random.randint(0, self.X_train.shape[0], batch_size)
-            images = self.X_train[idx]
-            masked_images = self.X_train_masked[idx]
-            masks = self.X_masks[idx]
-            labels = self.y_train[idx]
+            idx1 = np.random.randint(0, self.X_train.shape[0], batch_size)
+            images1 = self.X_train[idx1]
+            masked_images1 = self.X_train_masked[idx1]
+            masks1 = self.X_masks[idx1]
 
             # use the combined model to train the generator (discriminator weights are fixed)
             g_loss, g_acc = self.combined.train_on_batch([masked_images, masks], valid)
@@ -220,16 +234,32 @@ class UNet():
 
 
             # calculate metrics and write to file
-            mse = np.mean(np.square(images - self.generator.predict([masked_images, masks], verbose=0)))
+            mse = np.mean(np.square(images - gen_images))
             psnr = 10 * np.log10(1 / mse)
+
+            # accuracy
+            cnn_accuracy = np.mean(np.argmax(self.cnn.predict(gen_images, verbose=0), axis=1) == labels)
+
             if epoch == 0:
-                self.metrics_file.write("Epoch,mse,psnr,d_real_loss,d_real_acc,d_fake_loss,d_fake_acc,g_loss,g_acc\n")
-            self.metrics_file.write(f"{epoch},{mse},{psnr},{d_real_loss},{d_real_acc},{d_fake_loss},{d_fake_acc},{g_loss},{g_acc}\n")
+                self.metrics_file.write("Epoch,mse,psnr,d_real_loss,d_real_acc,d_fake_loss,d_fake_acc,g_loss,g_acc,cnn_accuracy\n")
+            self.metrics_file.write(f"{epoch},{mse},{psnr},{d_real_loss},{d_real_acc},{d_fake_loss},{d_fake_acc},{g_loss},{g_acc},{cnn_accuracy}\n")
+
 
             if epoch % sample_interval == 0:
                 self.sample_images(epoch)
-                self.evaluate_using_cnn(epoch)
+                accuracy = self.evaluate_using_cnn(epoch)
                 self.backup_model(epoch)
+
+
+            # if accuracy > best:
+            #     best = accuracy
+            #     best_epoch = epoch
+            #
+            # if best_epoch + 200 <= epoch:
+            #     print("Early stopping")
+            #     break
+
+
 
     def sample_images(self, epoch):
         r, c = 10, 10
@@ -310,11 +340,13 @@ class UNet():
         plt.savefig('images/cnn_accuracy.png')
         plt.close()
 
+        return accuracy
+
     def backup_model(self, epoch):
-        self.generator.save(f'saved_model/gen.keras')
-        self.discriminator.save(f'saved_model/disc.keras')
+        self.generator.save(f'saved_model/gen_{epoch}.keras')
+        self.discriminator.save(f'saved_model/disc_{epoch}.keras')
 
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=3001, batch_size=32, sample_interval=200)
+    unet.train(epochs=8001, batch_size=32, sample_interval=200)
