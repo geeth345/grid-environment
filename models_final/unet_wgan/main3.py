@@ -13,7 +13,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.src.engine.base_layer import Layer
-from keras.src.layers import Add, MultiHeadAttention
+from keras.src.layers import Add
 from tqdm import tqdm
 import random
 
@@ -42,7 +42,7 @@ class UNet():
 
 
         # instatntiate opmimisers
-        d_optimiser = Adam(0.00015, 0.5, 0.9)
+        d_optimiser = Adam(0.0002, 0.5, 0.9)
         g_optimiser = Adam(0.0002, 0.5, 0.9)
 
         # instantiate the WGAN model
@@ -59,7 +59,7 @@ class UNet():
 
 
         # load the dataset from the file
-        data = np.load('../../data/masked100_600_0.7.npz')
+        data = np.load(self.data_source)
         self.X_train = data['X_train']
         self.y_train = data['y_train']
         self.X_test = data['X_test']
@@ -240,103 +240,103 @@ class UNet():
         image = Input(shape=self.input_shape)
         mask = Input(shape=self.input_shape)
 
-        concat = Concatenate()([image, mask])
+        e1_image = Conv2D(8, kernel_size=(4, 4), strides=(1, 1), padding='same')(image)
+        e1_mask = Conv2D(8, kernel_size=(4, 4), strides=(1, 1), padding='same')(mask)
+        e1 = Concatenate()([e1_image, e1_mask])
+        e1 = BatchNormalization()(e1)
+        e1 = LeakyReLU(alpha=0.2)(e1)
 
-        # Attention Path
-        x1 = Conv2D(8, kernel_size=4, strides=1, padding="same")(concat)
-        x1 = LeakyReLU(alpha=0.2)(x1)
-        x1 = Dropout(0.1)(x1)
+        e2 = Conv2D(16, kernel_size=(4, 4), strides=(2, 2), padding='same')(e1)
+        e2 = BatchNormalization()(e2)
+        e2 = LeakyReLU(alpha=0.2)(e2)
 
-        x1 = Conv2D(16, kernel_size=4, strides=2, padding="same")(x1)
-        x1 = LeakyReLU(alpha=0.2)(x1)
-        x1 = Dropout(0.1)(x1)
+        e3 = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), padding='same')(e2)
+        e3 = BatchNormalization()(e3)
+        e3 = LeakyReLU(alpha=0.2)(e3)
 
-        x1 = Conv2D(32, kernel_size=4, strides=2, padding="same")(x1)
-        x1 = LeakyReLU(alpha=0.2)(x1)
-        x1 = Dropout(0.1)(x1)
+        # dialated convolution layers
+        dial1 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(e3)
+        dial1 = BatchNormalization()(dial1)
+        dial1 = LeakyReLU(alpha=0.2)(dial1)
 
-        x1 = MultiHeadAttention(num_heads=4, key_dim=16)(x1, x1)
+        dial2 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(dial1)
+        dial2 = BatchNormalization()(dial2)
+        dial2 = LeakyReLU(alpha=0.2)(dial2)
 
-        # Dialated Convolution Path
-        x2 = Conv2D(8, kernel_size=4, strides=1, padding="same")(image)
-        x2 = LeakyReLU(alpha=0.2)(x2)
-        x2 = Dropout(0.1)(x2)
+        dial3 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(dial2)
+        dial3 = BatchNormalization()(dial3)
+        dial3 = LeakyReLU(alpha=0.2)(dial3)
 
-        x2 = Conv2D(16, kernel_size=4, strides=2, padding="same")(x2)
-        x2 = LeakyReLU(alpha=0.2)(x2)
-        x2 = Dropout(0.1)(x2)
+        d3 = Conv2DTranspose(32, kernel_size=(4, 4), strides=(1, 1), padding='same')(dial3)
+        d3 = BatchNormalization()(d3)
+        d3 = LeakyReLU(alpha=0.2)(d3)
 
-        x2 = Conv2D(32, kernel_size=4, strides=2, padding="same")(x2)
-        x2 = LeakyReLU(alpha=0.2)(x2)
-        x2 = Dropout(0.1)(x2)
+        # d2 = UpSampling2D(size=(2, 2))(d3)
+        # d2 = Concatenate()([d2, e2])
+        # d2 = Conv2DTranspose(16, kernel_size=(4, 4), strides=(1, 1), padding='same')(d2)
+        # d2 = LeakyReLU(alpha=0.2)(d2)
 
-        x2 = Conv2D(32, kernel_size=4, strides=1, dilation_rate=2, padding="same")(x2)
-        x2 = LeakyReLU(alpha=0.2)(x2)
-        x2 = Dropout(0.1)(x2)
+        d2 = Conv2DTranspose(16, kernel_size=(4, 4), strides=(2, 2), padding='same')(d3)
+        d2 = BatchNormalization()(d2)
+        d2 = LeakyReLU(alpha=0.2)(d2)
+        d2 = Concatenate()([d2, e2])
 
-        x2 = Conv2D(32, kernel_size=4, strides=1, dilation_rate=2, padding="same")(x2)
-        x2 = LeakyReLU(alpha=0.2)(x2)
-        x2 = Dropout(0.1)(x2)
+        # d1 = UpSampling2D(size=(2, 2))(d2)
+        # d1 = Concatenate()([d1, e1])
+        # d1 = Conv2DTranspose(8, kernel_size=(4, 4), strides=(1, 1), padding='same')(d1)
+        # d1 = LeakyReLU(alpha=0.2)(d1)
 
-        # Merge the two paths
-        x = Concatenate()([x1, x2])
+        d1 = Conv2DTranspose(8, kernel_size=(4, 4), strides=(2, 2), padding='same')(d2)
+        d1 = BatchNormalization()(d1)
+        d1 = LeakyReLU(alpha=0.2)(d1)
+        d1 = Concatenate()([d1, e1])
 
-        x = Conv2D(32, kernel_size=4, strides=1, padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = Dropout(0.1)(x)
+        d0 = Conv2DTranspose(4, kernel_size=(4, 4), strides=(1, 1), padding='same')(d1)
+        d0 = BatchNormalization()(d0)
+        d0 = LeakyReLU(alpha=0.2)(d0)
 
-        # deconvolution
-        x = Conv2DTranspose(16, kernel_size=4, strides=2, padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = Dropout(0.1)(x)
+        d0 = Conv2DTranspose(2, kernel_size=(4, 4), strides=(1, 1), padding='same')(d0)
+        d0 = BatchNormalization()(d0)
+        d0 = LeakyReLU(alpha=0.2)(d0)
 
-        x = Conv2DTranspose(8, kernel_size=4, strides=2, padding="same")(x)
-        x = LeakyReLU(alpha=0.2)(x)
-        x = Dropout(0.1)(x)
+        d0 = Conv2DTranspose(1, kernel_size=(4, 4), strides=(1, 1), padding='same')(d0)
 
-        x = Conv2DTranspose(1, kernel_size=4, strides=1, padding="same")(x)
-        output = Activation('tanh')(x)
+        output = Activation('tanh')(d0)
 
-        model = Model(inputs=[image, mask], outputs=[output])
+        model = Model(inputs=[image, mask], outputs=output)
 
         return model
 
 
     def train(self, epochs, batch_size, sample_interval):
 
-        for epoch in tqdm(range(epochs)):
+
+
+
+        for epoch in range(epochs):
 
             metrics = {"d_loss": 0, "g_loss": 0}
 
-            if epoch <= -1:
+            if epoch <= 50:
                 # train the generotor with mse loss
                 idx = np.random.randint(0, self.X_train.shape[0], batch_size)
                 masked_images = self.X_train_masked[idx]
                 masks = self.X_masks[idx]
                 images = self.X_train[idx]
                 loss = self.generator.train_on_batch([masked_images, masks], images)
-                #print(f"{epoch} [MSE Loss: {loss}]")
+                print(f"{epoch} [MSE Loss: {loss}]")
 
             else:
 
-                ########################
-                # Prepare Data         #
-                ########################
-
-                idx = np.random.randint(0, self.X_train.shape[0], batch_size)
-                images = self.X_train[idx]
-                masked_images = self.X_train_masked[idx]
-                masks = self.X_masks[idx]
-                labels = self.y_train[idx]
 
                 ########################
                 # Train Model          #
                 ########################
 
-                trainGenerator = epoch > 10
+                traingenerator = epoch > 60
 
-                metrics = self.wgan.train_step(batch_size, trainGenerator=trainGenerator)
-               # print(f"{epoch} [Discriminator Loss: {metrics['d_loss']}, Generator Loss: {metrics['g_loss']}]")
+                metrics = self.wgan.train_step(batch_size, trainGenerator=traingenerator)
+                print(f"{epoch} [Discriminator Loss: {metrics['d_loss']}, Generator Loss: {metrics['g_loss']}]")
 
 
             ########################

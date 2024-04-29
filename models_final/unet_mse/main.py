@@ -1,4 +1,6 @@
 # keras imports
+import time
+
 from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concatenate, Reshape
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
 from keras.models import Model, load_model
@@ -128,7 +130,7 @@ class UNet():
     
     def train(self, epochs, batch_size, sample_interval):
         
-        for epoch in range(epochs): 
+        for epoch in tqdm(range(epochs)):
             
             # select a random batch of images
             idx = np.random.randint(0, self.X_train.shape[0], batch_size)
@@ -141,7 +143,7 @@ class UNet():
             loss = self.generator.train_on_batch([masked_images, masks], images)
             
             # print the progress
-            print(f"{epoch} [Generator Loss: {loss}]")
+            #print(f"{epoch} [Generator Loss: {loss}]")
 
             gen_imgs = self.generator.predict([masked_images, masks], verbose=0)
             # calculate metrics and write to file
@@ -247,4 +249,19 @@ class UNet():
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=10001, batch_size=32, sample_interval=500)
+
+    start1 = time.perf_counter()
+    start2 = time.process_time()
+
+    unet.train(epochs=4001, batch_size=64, sample_interval=200)
+
+    end1 = time.perf_counter()
+    end2 = time.process_time()
+    elapsed1 = end1 - start1
+    elapsed2 = end2 - start2
+
+    file = open('time.txt', 'w')
+    file.write(str(elapsed1) + '\n' + str(elapsed2))
+    file.close()
+    print(f"Time taken (total): {elapsed1}")
+    print(f"Time taken (process): {elapsed2}")

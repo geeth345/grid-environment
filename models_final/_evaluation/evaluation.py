@@ -17,7 +17,7 @@ to_evaluate = {
     'GAN (U-Net)': '../unet_gan/saved_model/gen_4800.keras',
     'ACGAN (U-Net)': '../unet_acgan/saved_model/gen_2600.keras',
     'SAGAN (U-Net)': '../unet_sagan/saved_model/gen_2800.keras',
-    'SAGANv2' : '../sagan_v2/saved_model/gen_3000.keras',
+    'SAGANv2' : '../sagan_v2/saved_model/gen_2800.keras',
     'WGAN-GP (U-Net)': '../unet_wgan/saved_model/gen.keras',
     'ACWGAN (U-Net)': '../unet_acwgan/saved_model/gen.keras'
 }

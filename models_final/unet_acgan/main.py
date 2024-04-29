@@ -1,4 +1,6 @@
 # keras imports
+import time
+
 from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concatenate, Reshape
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
 from keras.layers import GaussianNoise, Dropout
@@ -87,7 +89,7 @@ class UNet():
         # Merge parallel paths
         x = Concatenate()([x, p1, p2])
 
-        x = Conv2D(25, kernel_size=4, strides=2, input_shape=self.input_shape, padding="same")(image)
+        x = Conv2D(25, kernel_size=4, strides=2, input_shape=self.input_shape, padding="same")(x)
         x = GaussianNoise(0.05)(x)
         x = LeakyReLU(alpha=0.2)(x)
         x = Dropout(0.1)(x)
@@ -139,20 +141,34 @@ class UNet():
         e3 = BatchNormalization()(e3)
         e3 = LeakyReLU(alpha=0.2)(e3)
 
-        e4 = Dense(100)(Flatten()(e3))
-        e4 = BatchNormalization()(e4)
-        e4 = LeakyReLU(alpha=0.2)(e4)
+        # dialated convolution layers
+        dial1 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(e3)
+        dial1 = BatchNormalization()(dial1)
+        dial1 = LeakyReLU(alpha=0.2)(dial1)
 
-        lr = Dense(64)(e4)
-        lr = BatchNormalization()(lr)
-        lr = LeakyReLU(alpha=0.2)(lr)
+        dial2 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(dial1)
+        dial2 = BatchNormalization()(dial2)
+        dial2 = LeakyReLU(alpha=0.2)(dial2)
 
-        d4 = Dense(196)(lr)
-        d4 = BatchNormalization()(d4)
-        d4 = LeakyReLU(alpha=0.2)(d4)
+        dial3 = Conv2D(32, kernel_size=(4, 4), strides=(1, 1), padding='same', dilation_rate=1)(dial2)
+        dial3 = BatchNormalization()(dial3)
+        dial3 = LeakyReLU(alpha=0.2)(dial3)
 
-        d3 = Reshape((7, 7, 4))(d4)
-        d3 = Conv2DTranspose(32, kernel_size=(4, 4), strides=(1, 1), padding='same')(d3)
+
+        # e4 = Dense(100)(Flatten()(e3))
+        # e4 = BatchNormalization()(e4)
+        # e4 = LeakyReLU(alpha=0.2)(e4)
+        #
+        # lr = Dense(64)(e4)
+        # lr = BatchNormalization()(lr)
+        # lr = LeakyReLU(alpha=0.2)(lr)
+        #
+        # d4 = Dense(196)(lr)
+        # d4 = BatchNormalization()(d4)
+        # d4 = LeakyReLU(alpha=0.2)(d4)
+        #
+        # d3 = Reshape((7, 7, 4))(d4)
+        d3 = Conv2DTranspose(32, kernel_size=(4, 4), strides=(1, 1), padding='same')(dial3)
         d3 = BatchNormalization()(d3)
         d3 = LeakyReLU(alpha=0.2)(d3)
 
@@ -357,4 +373,19 @@ class UNet():
 
 if __name__ == '__main__':
     unet = UNet()
-    unet.train(epochs=3001, batch_size=64, sample_interval=200)
+
+    start1 = time.perf_counter()
+    start2 = time.process_time()
+
+    unet.train(epochs=4001, batch_size=64, sample_interval=200)
+
+    end1 = time.perf_counter()
+    end2 = time.process_time()
+    elapsed1 = end1 - start1
+    elapsed2 = end2 - start2
+
+    file = open('time.txt', 'w')
+    file.write(str(elapsed1) + '\n' + str(elapsed2))
+    file.close()
+    print(f"Time taken (total): {elapsed1}")
+    print(f"Time taken (process): {elapsed2}")

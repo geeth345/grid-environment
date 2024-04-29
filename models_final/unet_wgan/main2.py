@@ -42,8 +42,8 @@ class UNet():
 
 
         # instatntiate opmimisers
-        d_optimiser = Adam(0.0002, 0.5, 0.9)
-        g_optimiser = Adam(0.0002, 0.5, 0.9)
+        d_optimiser = Adam(0.0001, 0.5, 0.9)
+        g_optimiser = Adam(0.000075, 0.5, 0.9)
 
         # instantiate the WGAN model
         self.wgan = self.WGAN(self.discriminator, self.generator, self)
@@ -59,7 +59,7 @@ class UNet():
 
 
         # load the dataset from the file
-        data = np.load('../../data/masked100_600_0.7.npz')
+        data = np.load(self.data_source)
         self.X_train = data['X_train']
         self.y_train = data['y_train']
         self.X_test = data['X_test']
@@ -317,7 +317,7 @@ class UNet():
 
             metrics = {"d_loss": 0, "g_loss": 0}
 
-            if epoch <= -1:
+            if epoch <= 1000:
                 # train the generotor with mse loss
                 idx = np.random.randint(0, self.X_train.shape[0], batch_size)
                 masked_images = self.X_train_masked[idx]
@@ -328,23 +328,14 @@ class UNet():
 
             else:
 
-                ########################
-                # Prepare Data         #
-                ########################
-
-                idx = np.random.randint(0, self.X_train.shape[0], batch_size)
-                images = self.X_train[idx]
-                masked_images = self.X_train_masked[idx]
-                masks = self.X_masks[idx]
-                labels = self.y_train[idx]
 
                 ########################
                 # Train Model          #
                 ########################
 
-                trainGenerator = epoch > 10
+                traingenerator = epoch > 1200
 
-                metrics = self.wgan.train_step(batch_size, trainGenerator=trainGenerator)
+                metrics = self.wgan.train_step(batch_size, trainGenerator=traingenerator)
                 print(f"{epoch} [Discriminator Loss: {metrics['d_loss']}, Generator Loss: {metrics['g_loss']}]")
 
 

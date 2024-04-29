@@ -10,12 +10,9 @@ from tqdm import tqdm
 to_evaluate = {
     'Autoencoder': '../autoencoder_new/saved_model/gen.keras',
     'U-Net': '../unet_mse/saved_model/gen.keras',
-    'GAN (U-Net)': '../unet_gan/saved_model/gen_4400.keras',
-    'ACGAN (U-Net)': '../unet_acgan/saved_model/gen_2600.keras',
-    'SAGAN (U-Net)': '../unet_sagan/saved_model/gen_2800.keras',
-    'SAGANv2' : '../sagan_v2/saved_model/gen_3000.keras',
-    'WGAN-GP (U-Net)': '../unet_wgan/saved_model/gen.keras',
-    'ACWGAN (U-Net)': '../unet_acwgan/saved_model/gen.keras'
+    'ACGAN': '../unet_acgan/saved_model/gen_6000.keras',
+    'WGAN-GP': '../unet_wgan/saved_model/gen2_2900.keras',
+    'GAN': '../unet_gan/saved_model/gen_4400.keras',
 }
 
 # load the data
@@ -27,7 +24,7 @@ X_test_masked = data['X_test_masked']
 X_test_masks = data['X_test_masks']
 
 # shuffle the dataset to get a random sample
-np.random.seed(42)
+np.random.seed(89)
 idx = np.random.permutation(len(X_test))
 X_test = X_test[idx]
 y_test = y_test[idx]

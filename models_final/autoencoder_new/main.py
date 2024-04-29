@@ -1,4 +1,6 @@
 # keras imports
+import time
+
 from keras.layers import Input, Dense, MaxPooling2D, Conv2D, LeakyReLU, Concatenate, Reshape
 from keras.layers import Conv2DTranspose, Flatten, UpSampling2D, Activation, BatchNormalization
 from keras.models import Model, load_model
@@ -231,4 +233,20 @@ class Autoencoder():
 
 if __name__ == '__main__':
     ae = Autoencoder()
-    ae.train(epochs=5001, batch_size=64, sample_interval=500)
+    #ae.train(epochs=5001, batch_size=64, sample_interval=500)
+
+    start1 = time.perf_counter()
+    start2 = time.process_time()
+
+    ae.train(epochs=4001, batch_size=64, sample_interval=500)
+
+    end1 = time.perf_counter()
+    end2 = time.process_time()
+    elapsed1 = end1 - start1
+    elapsed2 = end2 - start2
+
+    file = open('time.txt', 'w')
+    file.write(str(elapsed1) + '\n' + str(elapsed2))
+    file.close()
+    print(f"Time taken (total): {elapsed1}")
+    print(f"Time taken (process): {elapsed2}")
